@@ -273,6 +273,64 @@ export function buildCLI(): Command {
       emit(result, makeOutputOptions(state));
     });
 
+  // --- notes interactive-edit ---
+  program
+    .command('interactive-edit')
+    .description('Interactively select and edit a note')
+    .action(async () => {
+      if (!process.stdin.isTTY) {
+        throw new CLIError(
+          'usage',
+          'TTY_REQUIRED',
+          'interactive-edit requires an interactive terminal',
+          'This command uses TUI prompts that need a real terminal.',
+          ['notes update <id> --title "..." --content "..."'],
+        );
+      }
+
+      const cfg = await ensureConfig(state);
+      const { items } = await listNotes(cfg.dataDir, { limit: 9999 });
+
+      if (items.length === 0) {
+        console.log(chalk.yellow('No notes to edit.'));
+        return;
+      }
+
+      const choices = items.map((n) => ({
+        name: `${n.title}  ${chalk.gray('[' + (n.tags.join(', ') || 'no tags') + ']')}`,
+        value: n.id,
+        description: n.content.slice(0, 60).replace(/\n/g, ' ') + (n.content.length > 60 ? '...' : ''),
+      }));
+
+      const selectedId = await select({
+        message: 'Select a note to edit:',
+        choices,
+      });
+
+      const note = await getNote(cfg.dataDir, selectedId);
+
+      const title = await input({ message: `New title (keep "${note.title}"):` });
+      const content = await input({ message: `New content (keep current):` });
+      const tagsRaw = await input({ message: `New tags (keep "${note.tags.join(', ') || 'none'}"):` });
+
+      const req: { id: string; title?: string; content?: string; tags?: string[] } = { id: selectedId };
+      if (title.trim()) req.title = title.trim();
+      if (content.trim()) req.content = content.trim();
+      const tags = tagsRaw.split(',').map((s) => s.trim()).filter(Boolean);
+      if (tags.length > 0 && JSON.stringify(tags) !== JSON.stringify(note.tags)) {
+        req.tags = tags;
+      }
+
+      if (Object.keys(req).length <= 1) {
+        console.log(chalk.gray('No changes made.'));
+        return;
+      }
+
+      const updated = await updateNote(cfg.dataDir, req);
+      console.log(chalk.green('✓'), 'Note updated:', chalk.bold(updated.id));
+      emit(updated, makeOutputOptions(state));
+    });
+
   // --- notes config init ---
   program
     .command('config init')
