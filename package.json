@@ -1,0 +1,29 @@
+{
+  "name": "notes-cli",
+  "version": "1.0.0",
+  "description": "A simple CLI for managing local notes, demonstrating CLI design patterns",
+  "main": "dist/index.js",
+  "type": "module",
+  "bin": {
+    "notes": "./dist/index.js"
+  },
+  "scripts": {
+    "build": "tsc",
+    "dev": "tsx src/index.ts",
+    "test": "vitest run",
+    "test:watch": "vitest",
+    "lint": "tsc --noEmit"
+  },
+  "keywords": ["cli", "notes", "demo"],
+  "license": "MIT",
+  "dependencies": {
+    "chalk": "^5.3.0",
+    "commander": "^12.1.0"
+  },
+  "devDependencies": {
+    "@types/node": "^22.0.0",
+    "tsx": "^4.19.0",
+    "typescript": "^5.6.0",
+    "vitest": "^2.1.0"
+  }
+}
