@@ -9,6 +9,7 @@ import {
   updateNote,
   deleteNote,
   searchNotes,
+  exportNotes,
 } from './storage.js';
 import { CLIError } from './errors.js';
 
@@ -74,5 +75,21 @@ describe('storage', () => {
       category: 'not_found',
       code: 'NOTE_NOT_FOUND',
     });
+  });
+
+  it('exports notes to a JSON file', async () => {
+    await createNote(dataDir, { title: 'A', content: 'a' });
+    await createNote(dataDir, { title: 'B', content: 'b' });
+
+    const outPath = path.join(dataDir, 'export.json');
+    const result = await exportNotes(dataDir, outPath);
+    expect(result.count).toBe(2);
+    expect(result.filePath).toBe(outPath);
+
+    const raw = await fs.readFile(outPath, 'utf-8');
+    const parsed = JSON.parse(raw);
+    expect(parsed.count).toBe(2);
+    expect(parsed.notes).toHaveLength(2);
+    expect(parsed.exportedFrom).toBe('notes-cli');
   });
 });

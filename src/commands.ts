@@ -16,6 +16,7 @@ import {
   searchNotes,
   describeCreate,
   describeDelete,
+  exportNotes,
 } from './storage.js';
 import { emit, emitList, emitError, setGlobalPretty } from './output.js';
 import { CLIError, exitCode, isCLIError } from './errors.js';
@@ -215,6 +216,31 @@ export function buildCLI(): Command {
       const cfg = await ensureConfig(state);
       const hits = await searchNotes(cfg.dataDir, keyword);
       emit(hits, makeOutputOptions(state));
+    });
+
+  // --- notes export [path] ---
+  program
+    .command('export [path]')
+    .description('Export all notes to a JSON file')
+    .option('--dry-run', 'preview the export without writing', false)
+    .action(async (pathArg: string | undefined, options) => {
+      const cfg = await ensureConfig(state);
+      const filePath = pathArg ?? 'notes-export.json';
+
+      if (options.dryRun) {
+        const notes = await listNotes(cfg.dataDir, { limit: 9999 });
+        emit({
+          plan: {
+            action: 'export',
+            filePath,
+            count: notes.items.length,
+          },
+        }, makeOutputOptions(state));
+        return;
+      }
+
+      const result = await exportNotes(cfg.dataDir, filePath);
+      emit(result, makeOutputOptions(state));
     });
 
   // --- notes config init ---

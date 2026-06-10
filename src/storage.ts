@@ -170,3 +170,26 @@ export function describeDelete(id: string): Record<string, unknown> {
     id,
   };
 }
+
+export interface ExportResult {
+  filePath: string;
+  count: number;
+  exportedAt: string;
+}
+
+export async function exportNotes(dataDir: string, filePath: string): Promise<ExportResult> {
+  const notes = await readNotes(dataDir);
+  const payload = {
+    exportedFrom: 'notes-cli',
+    version: '1.0.0',
+    exportedAt: new Date().toISOString(),
+    count: notes.length,
+    notes,
+  };
+  await fs.writeFile(filePath, JSON.stringify(payload, null, 2), 'utf-8');
+  return {
+    filePath,
+    count: notes.length,
+    exportedAt: payload.exportedAt,
+  };
+}
