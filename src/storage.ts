@@ -193,3 +193,32 @@ export async function exportNotes(dataDir: string, filePath: string): Promise<Ex
     exportedAt: payload.exportedAt,
   };
 }
+
+function escapeCsvCell(value: string): string {
+  if (value.includes(',') || value.includes('"') || value.includes('\n')) {
+    return `"${value.replace(/"/g, '""')}"`;
+  }
+  return value;
+}
+
+export async function exportNotesCSV(dataDir: string, filePath: string): Promise<ExportResult> {
+  const notes = await readNotes(dataDir);
+  const headers = ['id', 'title', 'content', 'tags', 'createdAt', 'updatedAt'];
+  const lines = notes.map((n) =>
+    [
+      n.id,
+      escapeCsvCell(n.title),
+      escapeCsvCell(n.content),
+      escapeCsvCell(n.tags.join(';')),
+      n.createdAt,
+      n.updatedAt,
+    ].join(','),
+  );
+  const csv = [headers.join(','), ...lines].join('\n');
+  await fs.writeFile(filePath, csv, 'utf-8');
+  return {
+    filePath,
+    count: notes.length,
+    exportedAt: new Date().toISOString(),
+  };
+}

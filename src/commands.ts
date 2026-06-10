@@ -6,7 +6,7 @@
  */
 import { Command } from 'commander';
 import chalk from 'chalk';
-import { input } from '@inquirer/prompts';
+import { input, select } from '@inquirer/prompts';
 import { loadConfig, initConfig } from './config.js';
 import {
   listNotes,
@@ -18,6 +18,7 @@ import {
   describeCreate,
   describeDelete,
   exportNotes,
+  exportNotesCSV,
 } from './storage.js';
 import { emit, emitList, emitError, setGlobalPretty } from './output.js';
 import { CLIError, exitCode, isCLIError } from './errors.js';
@@ -229,11 +230,26 @@ export function buildCLI(): Command {
   // --- notes export [path] ---
   program
     .command('export [path]')
-    .description('Export all notes to a JSON file')
+    .description('Export all notes to a file')
+    .option('--export-format <fmt>', 'export file format: json or csv')
     .option('--dry-run', 'preview the export without writing', false)
     .action(async (pathArg: string | undefined, options) => {
       const cfg = await ensureConfig(state);
-      const filePath = pathArg ?? 'notes-export.json';
+
+      // 交互式选择导出格式
+      let exportFormat = options.exportFormat as string | undefined;
+      if (!exportFormat && process.stdin.isTTY) {
+        exportFormat = await select({
+          message: 'Export format:',
+          choices: [
+            { name: 'JSON', value: 'json', description: 'Structured JSON with metadata' },
+            { name: 'CSV', value: 'csv', description: 'Comma-separated values' },
+          ],
+        });
+      }
+      exportFormat = exportFormat ?? 'json';
+
+      const filePath = pathArg ?? `notes-export.${exportFormat}`;
 
       if (options.dryRun) {
         const notes = await listNotes(cfg.dataDir, { limit: 9999 });
@@ -241,13 +257,19 @@ export function buildCLI(): Command {
           plan: {
             action: 'export',
             filePath,
+            format: exportFormat,
             count: notes.items.length,
           },
         }, makeOutputOptions(state));
         return;
       }
 
-      const result = await exportNotes(cfg.dataDir, filePath);
+      const result =
+        exportFormat === 'csv'
+          ? await exportNotesCSV(cfg.dataDir, filePath)
+          : await exportNotes(cfg.dataDir, filePath);
+
+      console.log(chalk.green('✓'), `Exported ${chalk.bold(result.count)} notes to ${chalk.bold(filePath)}`);
       emit(result, makeOutputOptions(state));
     });
 
