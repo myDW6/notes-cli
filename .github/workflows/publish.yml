@@ -33,8 +33,5 @@ jobs:
       - name: Build
         run: npm run build
 
-      - name: Debug npm auth
-        run: npm whoami
-
       - name: Publish to npm
-        run: npm publish --access public
+        run: npm publish --provenance --access public
