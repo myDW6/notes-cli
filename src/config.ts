@@ -7,6 +7,7 @@
 import fs from 'node:fs/promises';
 import path from 'node:path';
 import os from 'node:os';
+import { input, select } from '@inquirer/prompts';
 import { CLIError } from './errors.js';
 import type { Config } from './types.js';
 
@@ -90,23 +91,53 @@ export async function loadConfig(opt: LoadOptions): Promise<ResolvedConfig> {
 }
 
 /**
- * 交互式初始化配置（简化版）
+ * 交互式初始化配置向导
  */
 export async function initConfig(configDir?: string): Promise<void> {
   const dir = configDir ?? DEFAULT_CONFIG_DIR;
-  await fs.mkdir(dir, { recursive: true });
+
+  // 交互式提问（仅在 TTY 环境下）
+  const dataDir = process.stdin.isTTY
+    ? await input({
+        message: 'Where should notes be stored?',
+        default: path.join(dir, 'data'),
+      })
+    : path.join(dir, 'data');
+
+  const defaultFormat = process.stdin.isTTY
+    ? await select({
+        message: 'Default output format:',
+        choices: [
+          { name: 'Table', value: 'table', description: 'Human-friendly aligned text' },
+          { name: 'JSON', value: 'json', description: 'Machine-readable structured output' },
+        ],
+        default: 'table',
+      })
+    : 'table';
+
+  const pageSizeInput = process.stdin.isTTY
+    ? await input({
+        message: 'Page size:',
+        default: '25',
+        validate: (value) => {
+          const n = parseInt(value, 10);
+          return n > 0 && n <= 1000 ? true : 'Enter a number between 1 and 1000';
+        },
+      })
+    : '25';
 
   const config: Config = {
-    dataDir: path.join(dir, 'data'),
-    defaultFormat: 'table',
-    pageSize: 25,
+    dataDir,
+    defaultFormat: defaultFormat as 'json' | 'table',
+    pageSize: parseInt(pageSizeInput, 10),
   };
 
+  await fs.mkdir(dir, { recursive: true });
   await fs.writeFile(path.join(dir, CONFIG_FILE), JSON.stringify(config, null, 2), 'utf-8');
-
-  // 同时创建数据目录
   await fs.mkdir(config.dataDir, { recursive: true });
 
   console.log(`Config initialized at ${dir}`);
   console.log(`Data directory: ${config.dataDir}`);
+  console.log(`Default format: ${config.defaultFormat}`);
+  console.log(`Page size: ${config.pageSize}`);
 }
