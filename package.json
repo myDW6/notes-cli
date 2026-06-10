@@ -1,5 +1,5 @@
 {
-  "name": "notes-cli",
+  "name": "@shaodw/notes-cli",
   "version": "1.0.0",
   "description": "A simple CLI for managing local notes, demonstrating CLI design patterns",
   "main": "dist/index.js",
@@ -7,6 +7,11 @@
   "bin": {
     "notes": "./dist/index.js"
   },
+  "files": [
+    "dist/",
+    "README.md",
+    "LICENSE"
+  ],
   "scripts": {
     "build": "tsc",
     "dev": "tsx src/index.ts",

@@ -181,7 +181,7 @@ export function buildCLI(): Command {
       };
 
       if (options.dryRun) {
-        emit({ plan: { action: 'update', id, ...req } }, makeOutputOptions(state));
+        emit({ plan: { action: 'update', ...req } }, makeOutputOptions(state));
         return;
       }
 
