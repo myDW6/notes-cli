@@ -6,6 +6,7 @@
  */
 import { Command } from 'commander';
 import chalk from 'chalk';
+import { input } from '@inquirer/prompts';
 import { loadConfig, initConfig } from './config.js';
 import {
   listNotes,
@@ -133,16 +134,22 @@ export function buildCLI(): Command {
   program
     .command('create')
     .description('Create a new note')
-    .requiredOption('-t, --title <title>', 'note title')
-    .requiredOption('--content <content>', 'note content')
+    .option('-t, --title <title>', 'note title')
+    .option('--content <content>', 'note content')
     .option('--tags <tags>', 'comma-separated tags')
     .option('--dry-run', 'preview the request without creating', false)
     .action(async (options) => {
       const cfg = await ensureConfig(state);
+
+      // 交互式补全：如果没传参数，用 TUI 提问
+      const title = options.title ?? await input({ message: 'Note title:' });
+      const content = options.content ?? await input({ message: 'Content:' });
+      const tagsRaw = options.tags ?? await input({ message: 'Tags (optional):' });
+
       const req = {
-        title: options.title as string,
-        content: options.content as string,
-        tags: options.tags ? String(options.tags).split(',').map((s: string) => s.trim()) : [],
+        title: title as string,
+        content: content as string,
+        tags: tagsRaw ? String(tagsRaw).split(',').map((s: string) => s.trim()).filter(Boolean) : [],
       };
 
       if (options.dryRun) {
@@ -151,6 +158,7 @@ export function buildCLI(): Command {
       }
 
       const note = await createNote(cfg.dataDir, req);
+      console.log(chalk.green('✓'), 'Note created:', chalk.bold(note.id));
       emit(note, makeOutputOptions(state));
     });
 
