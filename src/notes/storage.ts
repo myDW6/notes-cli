@@ -5,7 +5,7 @@
 import fs from 'node:fs/promises';
 import path from 'node:path';
 import { randomUUID } from 'node:crypto';
-import { CLIError } from './errors.js';
+import { CLIError } from '../cli/errors.js';
 import { requestFingerprint } from './idempotency.js';
 import type { Note, CreateNoteReq, UpdateNoteReq, SearchHit, ListResult } from './types.js';
 

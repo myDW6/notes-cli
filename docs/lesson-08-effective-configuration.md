@@ -119,7 +119,7 @@ notes config effective --output json
 commands.ts
   收集显式参数，调用配置解析器
 
-config.ts
+config/resolver.ts
   读取、校验、合并、解析路径、记录来源
 
 业务命令

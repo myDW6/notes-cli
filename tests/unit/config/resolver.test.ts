@@ -2,7 +2,7 @@ import fs from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
 import { afterEach, describe, expect, it } from 'vitest';
-import { loadConfig } from './config.js';
+import { loadConfig } from '../../../src/config/resolver.js';
 
 const tempDirs: string[] = [];
 

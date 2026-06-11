@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
-import { CLIError } from './errors.js';
-import { resolveExecutionMode } from './execution.js';
+import { CLIError } from '../../../src/cli/errors.js';
+import { resolveExecutionMode } from '../../../src/cli/execution.js';
 
 describe('resolveExecutionMode', () => {
   it('uses TTY as the default for table interaction', () => {

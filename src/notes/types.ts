@@ -42,12 +42,6 @@ export interface SearchHit {
   excerpt: string;
 }
 
-export interface Config {
-  dataDir: string;
-  defaultFormat: 'json' | 'table';
-  pageSize: number;
-}
-
 export interface WriteRequestPlan {
   method: string;
   url: string;

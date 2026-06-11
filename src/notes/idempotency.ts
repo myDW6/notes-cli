@@ -1,5 +1,5 @@
 import { createHash } from 'node:crypto';
-import { CLIError } from './errors.js';
+import { CLIError } from '../cli/errors.js';
 
 function canonicalize(value: unknown): unknown {
   if (Array.isArray(value)) {

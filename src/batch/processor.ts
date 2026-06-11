@@ -1,11 +1,11 @@
 import fs from 'node:fs/promises';
 import { createInterface } from 'node:readline';
-import { CLIError, isCLIError } from './errors.js';
-import { normalizeIdempotencyKey } from './idempotency.js';
-import { createNote, createNoteIdempotent, deleteNote } from './storage.js';
-import { validateCreateInput } from './discovery.js';
-import type { BatchResultOutput } from './output.js';
-import type { ErrorCategory } from './errors.js';
+import { CLIError, isCLIError } from '../cli/errors.js';
+import { normalizeIdempotencyKey } from '../notes/idempotency.js';
+import { createNote, createNoteIdempotent, deleteNote } from '../notes/storage.js';
+import { validateCreateInput } from '../protocol/discovery.js';
+import type { BatchResultOutput } from '../cli/output.js';
+import type { ErrorCategory } from '../cli/errors.js';
 
 export interface BatchProcessOptions {
   dataDir: string;

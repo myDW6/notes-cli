@@ -4,7 +4,7 @@ import {
   CLI_CAPABILITIES,
   CREATE_NOTE_INPUT_SCHEMA,
   validateCreateInput,
-} from './discovery.js';
+} from '../../../src/protocol/discovery.js';
 
 describe('CLI discovery contracts', () => {
   it('uses the protocol version in the create schema ID', () => {

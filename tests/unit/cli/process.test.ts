@@ -1,6 +1,6 @@
 import { EventEmitter } from 'node:events';
 import { describe, expect, it } from 'vitest';
-import { installBrokenPipeHandler } from './process.js';
+import { installBrokenPipeHandler } from '../../../src/cli/process.js';
 
 describe('broken pipe handling', () => {
   it('exits cleanly for EPIPE', () => {

@@ -2,8 +2,8 @@ import fs from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
 import { beforeEach, describe, expect, it } from 'vitest';
-import { processJSONLBatch } from './batch.js';
-import type { BatchResultOutput } from './output.js';
+import { processJSONLBatch } from '../../../src/batch/processor.js';
+import type { BatchResultOutput } from '../../../src/cli/output.js';
 
 describe('JSONL batch processing', () => {
   let dataDir: string;

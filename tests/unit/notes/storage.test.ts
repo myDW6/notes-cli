@@ -11,8 +11,8 @@ import {
   deleteNote,
   searchNotes,
   exportNotes,
-} from './storage.js';
-import { CLIError } from './errors.js';
+} from '../../../src/notes/storage.js';
+import { CLIError } from '../../../src/cli/errors.js';
 
 async function mkdtemp(): Promise<string> {
   return fs.mkdtemp(path.join(os.tmpdir(), 'notes-test-'));

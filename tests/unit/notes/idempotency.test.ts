@@ -1,5 +1,8 @@
 import { describe, expect, it } from 'vitest';
-import { canonicalJSON, requestFingerprint } from './idempotency.js';
+import {
+  canonicalJSON,
+  requestFingerprint,
+} from '../../../src/notes/idempotency.js';
 
 describe('idempotency fingerprinting', () => {
   it('sorts object keys while preserving array order', () => {

@@ -8,13 +8,18 @@ import fs from 'node:fs/promises';
 import path from 'node:path';
 import os from 'node:os';
 import { input, select } from '@inquirer/prompts';
-import { CLIError } from './errors.js';
-import type { Config } from './types.js';
-import type { OutputFormat } from './output.js';
+import { CLIError } from '../cli/errors.js';
+import type { OutputFormat } from '../cli/output.js';
 
 const DEFAULT_CONFIG_DIR = path.join(os.homedir(), '.config', 'notes-cli');
 const CONFIG_FILE = 'config.json';
 const CONFIG_FIELDS = ['dataDir', 'defaultFormat', 'pageSize'] as const;
+
+interface Config {
+  dataDir: string;
+  defaultFormat: 'json' | 'table';
+  pageSize: number;
+}
 
 const defaults: Config = {
   dataDir: path.join(DEFAULT_CONFIG_DIR, 'data'),

@@ -1,6 +1,6 @@
-import { CLIError } from './errors.js';
-import { API_VERSION } from './output.js';
-import type { CreateNoteReq } from './types.js';
+import { CLIError } from '../cli/errors.js';
+import { API_VERSION } from '../cli/output.js';
+import type { CreateNoteReq } from '../notes/types.js';
 
 export const CREATE_NOTE_INPUT_SCHEMA = {
   $schema: 'https://json-schema.org/draft/2020-12/schema',

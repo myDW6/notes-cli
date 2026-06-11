@@ -1,6 +1,6 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
-import { emit, emitList, emitError } from './output.js';
-import { CLIError } from './errors.js';
+import { emit, emitList, emitError } from '../../../src/cli/output.js';
+import { CLIError } from '../../../src/cli/errors.js';
 
 describe('output', () => {
   let logs: unknown[] = [];

@@ -138,6 +138,15 @@ paths resolve from the current working directory. Relative paths stored in
 Invalid environment values or malformed config files are reported as config
 errors instead of being silently replaced by defaults.
 
+## Project structure
+
+The CLI entry point is a composition root. Global parsing and runtime state live
+under `src/cli/`, while command use cases are registered from `src/commands/`.
+Configuration, notes, batch, and Agent protocol modules have their own
+directories and do not depend on Commander. See
+[`docs/architecture.md`](docs/architecture.md) for the dependency rules.
+Tests live under `tests/unit/` and `tests/integration/`.
+
 ## Unix composition
 
 Use `-` only when explicitly reading from stdin or writing raw export content to
