@@ -144,12 +144,13 @@ function resolveOutputFlag(flags: GlobalFlags): string | undefined {
 
 async function ensureConfig(s: AppState): Promise<NonNullable<AppState['_config']>> {
   if (s._config) return s._config;
-  const output = resolveOutputFlag(s.gflags);
-  if (output) parseOutputFormat(output);
+  const outputValue = resolveOutputFlag(s.gflags);
+  const output = outputValue ? parseOutputFormat(outputValue) : undefined;
   s._config = await loadConfig({
     configPath: s.gflags.config,
     dataDir: s.gflags.dataDir,
     output,
+    outputSourceName: s.gflags.output ? '--output' : s.gflags.legacyFormat ? '--format' : undefined,
   });
   return s._config;
 }
@@ -339,9 +340,10 @@ export function buildCLI(state: AppState = newAppState()): Command {
     .option('--interactive', 'require interactive prompts', false)
     .hook('preAction', async (_thisCommand, actionCommand) => {
       const opts = actionCommand.optsWithGlobals();
-      state.commandName = actionCommand.parent?.name() === 'schema'
-        ? `schema.${actionCommand.name()}`
-        : actionCommand.name();
+      state.commandName =
+        actionCommand.parent !== program && actionCommand.parent
+          ? `${actionCommand.parent.name()}.${actionCommand.name()}`
+          : actionCommand.name();
       state.gflags = {
         config: opts.config,
         dataDir: opts.dataDir,
@@ -362,7 +364,7 @@ export function buildCLI(state: AppState = newAppState()): Command {
         ? parseOutputFormat(outputValue)
         : isDiscoveryCommand
           ? 'table'
-          : (await ensureConfig(state)).defaultFormat;
+          : (await ensureConfig(state)).output;
 
       if (output === 'jsonl' && state.gflags.pretty) {
         throw new CLIError(
@@ -789,12 +791,27 @@ Examples:
       emit(updated, makeOutputOptions(state));
     });
 
-  program
-    .command('config init')
+  const configCommand = program
+    .command('config')
+    .description('Manage and inspect CLI configuration');
+
+  configCommand
+    .command('init')
     .description('Initialize configuration')
     .action(async () => {
       const result = await initConfig(state.gflags.config, state.mode?.interactive === true);
       emit(result, makeOutputOptions(state));
+    });
+
+  configCommand
+    .command('effective')
+    .description('Show resolved configuration values and their sources')
+    .action(async () => {
+      const config = await ensureConfig(state);
+      emit({
+        configFile: config.configFile,
+        values: config.effective,
+      }, makeOutputOptions(state));
     });
 
   return program;

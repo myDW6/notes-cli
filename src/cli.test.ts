@@ -18,7 +18,11 @@ function makeTempDir(): string {
   return dir;
 }
 
-function runCLI(args: string[], input?: string): CLIResult {
+function runCLI(
+  args: string[],
+  input?: string,
+  env?: Record<string, string | undefined>,
+): CLIResult {
   const result = spawnSync(
     process.execPath,
     ['--import', 'tsx', 'src/index.ts', ...args],
@@ -29,6 +33,7 @@ function runCLI(args: string[], input?: string): CLIResult {
       env: {
         ...process.env,
         NO_COLOR: '1',
+        ...env,
       },
     },
   );
@@ -152,6 +157,127 @@ describe('CLI contract', () => {
     expect(JSON.parse(capabilities.stdout).command).toBe('capabilities');
     expect(schema.status).toBe(0);
     expect(JSON.parse(schema.stdout).command).toBe('schema.create');
+  });
+
+  it('explains effective config values and their sources', () => {
+    const root = makeTempDir();
+    const configDir = path.join(root, 'config');
+    fs.mkdirSync(configDir);
+    fs.writeFileSync(
+      path.join(configDir, 'config.json'),
+      JSON.stringify({
+        dataDir: './file-data',
+        defaultFormat: 'table',
+        pageSize: 40,
+      }),
+    );
+
+    const result = runCLI([
+      'config',
+      'effective',
+      '--config',
+      configDir,
+      '--data-dir',
+      './flag-data',
+      '--output',
+      'json',
+    ], undefined, {
+      NOTES_DATA_DIR: './env-data',
+      NOTES_FORMAT: 'table',
+    });
+
+    expect(result.status).toBe(0);
+    expect(result.stderr).toBe('');
+    expect(JSON.parse(result.stdout)).toMatchObject({
+      ok: true,
+      command: 'config.effective',
+      data: {
+        configFile: path.join(configDir, 'config.json'),
+        values: {
+          configDir: {
+            value: configDir,
+            source: 'command-line',
+            sourceName: '--config',
+          },
+          dataDir: {
+            value: path.resolve('./flag-data'),
+            source: 'command-line',
+            sourceName: '--data-dir',
+          },
+          output: {
+            value: 'json',
+            source: 'command-line',
+            sourceName: '--output',
+          },
+          pageSize: {
+            value: 40,
+            source: 'config-file',
+          },
+        },
+      },
+    });
+  });
+
+  it('rejects invalid environment configuration without silently falling back', () => {
+    const result = runCLI([
+      'list',
+      '--output',
+      'json',
+      '--data-dir',
+      makeTempDir(),
+    ], undefined, {
+      NOTES_FORMAT: 'xml',
+    });
+
+    expect(result.status).toBe(3);
+    expect(result.stdout).toBe('');
+    expect(JSON.parse(result.stderr)).toMatchObject({
+      command: 'list',
+      error: {
+        category: 'config',
+        code: 'INVALID_ENVIRONMENT_VALUE',
+        details: {
+          variable: 'NOTES_FORMAT',
+          value: 'xml',
+        },
+      },
+    });
+  });
+
+  it('distinguishes a missing config file from a malformed config file', () => {
+    const missing = runCLI([
+      'config',
+      'effective',
+      '--config',
+      makeTempDir(),
+      '--output',
+      'json',
+    ], undefined, {
+      NOTES_DATA_DIR: undefined,
+      NOTES_FORMAT: undefined,
+    });
+
+    const invalidDir = makeTempDir();
+    fs.writeFileSync(path.join(invalidDir, 'config.json'), '{invalid json');
+    const invalid = runCLI([
+      'config',
+      'effective',
+      '--config',
+      invalidDir,
+      '--output',
+      'json',
+    ], undefined, {
+      NOTES_DATA_DIR: undefined,
+      NOTES_FORMAT: undefined,
+    });
+
+    expect(missing.status).toBe(0);
+    expect(JSON.parse(missing.stdout).data.values.pageSize).toMatchObject({
+      value: 25,
+      source: 'default',
+    });
+    expect(invalid.status).toBe(3);
+    expect(JSON.parse(invalid.stderr).error.code).toBe('CONFIG_PARSE_ERROR');
   });
 
   it('creates a note with one clean JSON document on stdout', () => {

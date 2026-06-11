@@ -63,6 +63,9 @@ notes interactive-edit
 
 # Initialize config
 notes config init
+
+# Explain the final configuration and where every value came from
+notes config effective --output json
 ```
 
 ## Global Options
@@ -113,10 +116,27 @@ without parsing help text:
 ```bash
 notes capabilities --output json
 notes schema create --output json
+notes config effective --output json
 ```
 
 The create schema rejects unknown fields instead of silently ignoring likely
 typos.
+
+## Configuration precedence
+
+Configuration is resolved in one place using this priority:
+
+```text
+command-line option > environment variable > config file > built-in default
+```
+
+`notes config effective --output json` returns each final value together with
+its `source` and `sourceName`. Relative `--config`, `--data-dir`, and environment
+paths resolve from the current working directory. Relative paths stored in
+`config.json` resolve from the config directory.
+
+Invalid environment values or malformed config files are reported as config
+errors instead of being silently replaced by defaults.
 
 ## Unix composition
 
@@ -138,8 +158,8 @@ using pipelines should enable `set -o pipefail`.
 Config file location: `~/.config/notes-cli/config.json`
 
 Environment variables:
-- `NOTES_DATA_DIR` — Data directory override
-- `NOTES_FORMAT` — Default output format
+- `NOTES_DATA_DIR` - Data directory override
+- `NOTES_FORMAT` - Default output format (`table` or `json`)
 
 ## License
 

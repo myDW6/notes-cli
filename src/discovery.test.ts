@@ -30,6 +30,14 @@ describe('CLI discovery contracts', () => {
     });
   });
 
+  it('publishes explainable effective configuration support', () => {
+    expect(CLI_CAPABILITIES.commands['config.effective']).toMatchObject({
+      readOnly: true,
+      explainsConfigurationSources: true,
+      exposesSensitiveValues: false,
+    });
+  });
+
   it('normalizes defaults defined by the create schema', () => {
     expect(validateCreateInput({ title: '  A  ' })).toEqual({
       title: 'A',
