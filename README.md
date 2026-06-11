@@ -52,6 +52,11 @@ notes batch --input-jsonl operations.jsonl --output jsonl
 # Export notes
 notes export backup.json --export-format json
 notes export backup.csv --export-format csv
+notes export - --export-format json > backup.json
+
+# Project result fields or suppress successful table output
+notes list --output json --fields id,title
+notes delete <id> --yes --quiet
 
 # Interactively edit a note
 notes interactive-edit
@@ -66,6 +71,8 @@ notes config init
 |--------|-------------|
 | `-o, --output <format>` | Output format: `table`, `json`, or `jsonl` |
 | `--pretty` | Pretty-print JSON output |
+| `--fields <fields>` | Include comma-separated fields from result data |
+| `--quiet` | Suppress successful table output |
 | `--no-input` | Disable interactive prompts |
 | `--interactive` | Require interactive prompts and a TTY |
 | `--config <path>` | Config directory |
@@ -110,6 +117,21 @@ notes schema create --output json
 
 The create schema rejects unknown fields instead of silently ignoring likely
 typos.
+
+## Unix composition
+
+Use `-` only when explicitly reading from stdin or writing raw export content to
+stdout:
+
+```bash
+cat note.json | notes create --input - --output json
+notes export - --export-format json | gzip > backup.json.gz
+notes list --output json --fields id,title | jq '.data.items'
+```
+
+Raw export stdout contains file content, not the CLI response envelope. Output
+redirection does not implicitly change the selected output format. Shell scripts
+using pipelines should enable `set -o pipefail`.
 
 ## Configuration
 

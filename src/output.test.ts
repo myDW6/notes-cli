@@ -23,6 +23,7 @@ describe('output', () => {
       {
         output: 'json',
         pretty: false,
+        quiet: false,
         command: 'create',
         requestId: 'req_test',
       },
@@ -42,6 +43,7 @@ describe('output', () => {
       {
         output: 'json',
         pretty: true,
+        quiet: false,
         command: 'create',
         requestId: 'req_test',
       },
@@ -56,6 +58,7 @@ describe('output', () => {
       {
         output: 'json',
         pretty: false,
+        quiet: false,
         command: 'list',
         requestId: 'req_test',
       },
@@ -79,5 +82,39 @@ describe('output', () => {
     expect(parsed.command).toBe('get');
     expect(parsed.error.code).toBe('MISSING');
     expect(parsed.error.nextSteps).toEqual(['notes list']);
+  });
+
+  it('projects list item fields while preserving page metadata', () => {
+    emitList(
+      [{ id: '1', title: 'A', content: 'hidden' }],
+      { hasMore: false },
+      {
+        output: 'json',
+        pretty: false,
+        quiet: false,
+        command: 'list',
+        requestId: 'req_test',
+        fields: ['id', 'title'],
+      },
+    );
+
+    expect(JSON.parse(logs[0] as string).data).toEqual({
+      items: [{ id: '1', title: 'A' }],
+      page: { hasMore: false },
+    });
+  });
+
+  it('suppresses successful output in quiet mode', () => {
+    emit(
+      { id: '1' },
+      {
+        output: 'table',
+        pretty: false,
+        quiet: true,
+        command: 'delete',
+        requestId: 'req_test',
+      },
+    );
+    expect(logs).toEqual([]);
   });
 });

@@ -77,6 +77,23 @@ export const BATCH_ITEM_SCHEMA = {
 } as const;
 
 export const CLI_CAPABILITIES = {
+  globalOptions: {
+    fields: {
+      supported: true,
+      appliesTo: 'data',
+      preservesEnvelope: true,
+    },
+    quiet: {
+      supported: true,
+      outputFormats: ['table'],
+    },
+  },
+  standardStreams: {
+    explicitInputMarker: '-',
+    explicitOutputMarker: '-',
+    implicitStdinRead: false,
+    handlesBrokenPipe: true,
+  },
   commands: {
     capabilities: {
       readOnly: true,
@@ -165,6 +182,8 @@ export const CLI_CAPABILITIES = {
       supportsDryRun: true,
       supportsStructuredInput: false,
       writesExternalFile: true,
+      supportsRawStdout: true,
+      rawStdoutFormats: ['json', 'csv'],
     },
     'interactive-edit': {
       readOnly: false,

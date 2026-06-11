@@ -623,4 +623,179 @@ describe('CLI contract', () => {
       data: { deleted: true, id },
     });
   });
+
+  it('projects fields inside list data without removing the envelope', () => {
+    const dataDir = makeTempDir();
+    runCLI([
+      'create',
+      '--title',
+      'Projected',
+      '--content',
+      'hidden',
+      '--output',
+      'json',
+      '--data-dir',
+      dataDir,
+    ]);
+
+    const result = runCLI([
+      'list',
+      '--all',
+      '--fields',
+      'id,title',
+      '--output',
+      'json',
+      '--data-dir',
+      dataDir,
+    ]);
+
+    expect(result.status).toBe(0);
+    expect(JSON.parse(result.stdout)).toMatchObject({
+      ok: true,
+      command: 'list',
+      data: {
+        items: [{ title: 'Projected' }],
+        page: { hasMore: false },
+      },
+    });
+    expect(JSON.parse(result.stdout).data.items[0]).not.toHaveProperty('content');
+  });
+
+  it('suppresses successful table output with --quiet but preserves errors', () => {
+    const dataDir = makeTempDir();
+    const created = runCLI([
+      'create',
+      '--title',
+      'Quiet',
+      '--quiet',
+      '--no-input',
+      '--data-dir',
+      dataDir,
+    ]);
+    const failed = runCLI([
+      'delete',
+      'missing',
+      '--yes',
+      '--quiet',
+      '--no-input',
+      '--data-dir',
+      dataDir,
+    ]);
+
+    expect(created.status).toBe(0);
+    expect(created.stdout).toBe('');
+    expect(created.stderr).toBe('');
+    expect(failed.status).toBe(6);
+    expect(failed.stdout).toBe('');
+    expect(JSON.parse(failed.stderr).error.code).toBe('NOTE_NOT_FOUND');
+  });
+
+  it('rejects quiet with machine-readable output', () => {
+    const result = runCLI([
+      'list',
+      '--quiet',
+      '--output',
+      'json',
+      '--data-dir',
+      makeTempDir(),
+    ]);
+
+    expect(result.status).toBe(2);
+    expect(JSON.parse(result.stderr).error.code).toBe('CONFLICTING_OPTIONS');
+  });
+
+  it('writes raw JSON export content to stdout', () => {
+    const dataDir = makeTempDir();
+    runCLI([
+      'create',
+      '--title',
+      'Exported',
+      '--output',
+      'json',
+      '--data-dir',
+      dataDir,
+    ]);
+
+    const result = runCLI([
+      'export',
+      '-',
+      '--export-format',
+      'json',
+      '--data-dir',
+      dataDir,
+    ]);
+    const exported = JSON.parse(result.stdout);
+
+    expect(result.status).toBe(0);
+    expect(result.stderr).toBe('');
+    expect(exported).toMatchObject({
+      exportedFrom: 'notes-cli',
+      count: 1,
+      notes: [{ title: 'Exported' }],
+    });
+    expect(exported).not.toHaveProperty('ok');
+  });
+
+  it('writes raw CSV export content to stdout', () => {
+    const dataDir = makeTempDir();
+    runCLI([
+      'create',
+      '--title',
+      'CSV note',
+      '--content',
+      'body',
+      '--output',
+      'json',
+      '--data-dir',
+      dataDir,
+    ]);
+
+    const result = runCLI([
+      'export',
+      '-',
+      '--export-format',
+      'csv',
+      '--data-dir',
+      dataDir,
+    ]);
+
+    expect(result.status).toBe(0);
+    expect(result.stderr).toBe('');
+    expect(result.stdout).toMatch(/^id,title,content,tags,createdAt,updatedAt\n/);
+    expect(result.stdout).toContain(',CSV note,body,');
+  });
+
+  it('rejects protocol projection options for raw stdout export', () => {
+    const result = runCLI([
+      'export',
+      '-',
+      '--export-format',
+      'json',
+      '--fields',
+      'id,title',
+      '--data-dir',
+      makeTempDir(),
+    ]);
+
+    expect(result.status).toBe(2);
+    expect(result.stdout).toBe('');
+    expect(JSON.parse(result.stderr).error.code).toBe('RAW_OUTPUT_CONFLICT');
+  });
+
+  it('rejects the legacy protocol output option for raw stdout export', () => {
+    const result = runCLI([
+      'export',
+      '-',
+      '--export-format',
+      'json',
+      '--format',
+      'json',
+      '--data-dir',
+      makeTempDir(),
+    ]);
+
+    expect(result.status).toBe(2);
+    expect(result.stdout).toBe('');
+    expect(JSON.parse(result.stderr).error.code).toBe('RAW_OUTPUT_CONFLICT');
+  });
 });

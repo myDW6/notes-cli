@@ -305,20 +305,57 @@ export interface ExportResult {
   exportedAt: string;
 }
 
-export async function exportNotes(dataDir: string, filePath: string): Promise<ExportResult> {
+export interface ExportContent {
+  content: string;
+  count: number;
+  exportedAt: string;
+}
+
+export async function renderNotesExport(
+  dataDir: string,
+  format: 'json' | 'csv',
+): Promise<ExportContent> {
   const notes = await readNotes(dataDir);
-  const payload = {
-    exportedFrom: 'notes-cli',
-    version: '1.0.0',
-    exportedAt: new Date().toISOString(),
+  const exportedAt = new Date().toISOString();
+  if (format === 'json') {
+    return {
+      content: `${JSON.stringify({
+        exportedFrom: 'notes-cli',
+        version: '1.0.0',
+        exportedAt,
+        count: notes.length,
+        notes,
+      }, null, 2)}\n`,
+      count: notes.length,
+      exportedAt,
+    };
+  }
+
+  const headers = ['id', 'title', 'content', 'tags', 'createdAt', 'updatedAt'];
+  const lines = notes.map((note) =>
+    [
+      note.id,
+      escapeCsvCell(note.title),
+      escapeCsvCell(note.content),
+      escapeCsvCell(note.tags.join(';')),
+      note.createdAt,
+      note.updatedAt,
+    ].join(','),
+  );
+  return {
+    content: `${[headers.join(','), ...lines].join('\n')}\n`,
     count: notes.length,
-    notes,
+    exportedAt,
   };
-  await fs.writeFile(filePath, JSON.stringify(payload, null, 2), 'utf-8');
+}
+
+export async function exportNotes(dataDir: string, filePath: string): Promise<ExportResult> {
+  const rendered = await renderNotesExport(dataDir, 'json');
+  await fs.writeFile(filePath, rendered.content, 'utf-8');
   return {
     filePath,
-    count: notes.length,
-    exportedAt: payload.exportedAt,
+    count: rendered.count,
+    exportedAt: rendered.exportedAt,
   };
 }
 
@@ -330,23 +367,11 @@ function escapeCsvCell(value: string): string {
 }
 
 export async function exportNotesCSV(dataDir: string, filePath: string): Promise<ExportResult> {
-  const notes = await readNotes(dataDir);
-  const headers = ['id', 'title', 'content', 'tags', 'createdAt', 'updatedAt'];
-  const lines = notes.map((n) =>
-    [
-      n.id,
-      escapeCsvCell(n.title),
-      escapeCsvCell(n.content),
-      escapeCsvCell(n.tags.join(';')),
-      n.createdAt,
-      n.updatedAt,
-    ].join(','),
-  );
-  const csv = [headers.join(','), ...lines].join('\n');
-  await fs.writeFile(filePath, csv, 'utf-8');
+  const rendered = await renderNotesExport(dataDir, 'csv');
+  await fs.writeFile(filePath, rendered.content, 'utf-8');
   return {
     filePath,
-    count: notes.length,
-    exportedAt: new Date().toISOString(),
+    count: rendered.count,
+    exportedAt: rendered.exportedAt,
   };
 }

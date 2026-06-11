@@ -21,6 +21,7 @@ import {
   describeDelete,
   exportNotes,
   exportNotesCSV,
+  renderNotesExport,
 } from './storage.js';
 import { emit, emitList, emitError, emitBatchResult } from './output.js';
 import {
@@ -48,6 +49,8 @@ interface GlobalFlags {
   output?: string;
   legacyFormat?: string;
   pretty: boolean;
+  fields?: string;
+  quiet: boolean;
   noInput: boolean;
   interactive: boolean;
 }
@@ -100,6 +103,8 @@ function newAppState(argv: string[] = process.argv): AppState {
       output: readRawOption(argv, '--output', '-o'),
       legacyFormat: readRawOption(argv, '--format', '-f'),
       pretty: argv.slice(2).includes('--pretty'),
+      fields: readRawOption(argv, '--fields'),
+      quiet: argv.slice(2).includes('--quiet'),
       noInput: argv.slice(2).includes('--no-input'),
       interactive: argv.slice(2).includes('--interactive'),
     },
@@ -156,13 +161,31 @@ function makeOutputOptions(s: AppState): OutputOptions {
   return {
     output: s.mode.output,
     pretty: s.gflags.pretty,
+    quiet: s.gflags.quiet,
     command: s.commandName,
     requestId: s.requestId,
+    fields: parseFields(s.gflags.fields),
   };
 }
 
 function isHumanOutput(s: AppState): boolean {
-  return s.mode?.output === 'table';
+  return s.mode?.output === 'table' && !s.gflags.quiet;
+}
+
+function parseFields(raw: string | undefined): string[] | undefined {
+  if (raw === undefined) return undefined;
+  const fields = [...new Set(raw.split(',').map((field) => field.trim()).filter(Boolean))];
+  if (fields.length === 0) {
+    throw new CLIError(
+      'usage',
+      'INVALID_ARGUMENT',
+      '--fields must contain at least one field name',
+      '',
+      [],
+      { argument: 'fields', value: raw },
+    );
+  }
+  return fields;
 }
 
 function parseLimit(raw: string): number {
@@ -310,6 +333,8 @@ export function buildCLI(state: AppState = newAppState()): Command {
     .option('-o, --output <format>', 'output format: table, json or jsonl')
     .addOption(new Option('-f, --format <format>').hideHelp())
     .option('--pretty', 'pretty-print JSON output', false)
+    .option('--fields <fields>', 'comma-separated fields to include in result data')
+    .option('--quiet', 'suppress successful human-readable output', false)
     .option('--no-input', 'disable interactive prompts')
     .option('--interactive', 'require interactive prompts', false)
     .hook('preAction', async (_thisCommand, actionCommand) => {
@@ -323,6 +348,8 @@ export function buildCLI(state: AppState = newAppState()): Command {
         output: opts.output,
         legacyFormat: opts.format,
         pretty: opts.pretty,
+        fields: opts.fields,
+        quiet: opts.quiet,
         noInput: opts.input === false,
         interactive: opts.interactive,
       };
@@ -347,6 +374,27 @@ export function buildCLI(state: AppState = newAppState()): Command {
           { options: ['pretty', 'output'], output },
         );
       }
+      if (state.gflags.quiet && output !== 'table') {
+        throw new CLIError(
+          'usage',
+          'CONFLICTING_OPTIONS',
+          '--quiet can only be used with --output table',
+          '',
+          [],
+          { options: ['quiet', 'output'], output },
+        );
+      }
+      if (state.gflags.fields && output === 'jsonl') {
+        throw new CLIError(
+          'usage',
+          'CONFLICTING_OPTIONS',
+          '--fields cannot be combined with --output jsonl',
+          '',
+          [],
+          { options: ['fields', 'output'], output },
+        );
+      }
+      parseFields(state.gflags.fields);
 
       state.mode = resolveExecutionMode({
         output,
@@ -643,6 +691,30 @@ Examples:
         return;
       }
 
+      if (filePath === '-') {
+        const conflictingOptions = [
+          state.gflags.output || state.gflags.legacyFormat ? 'output' : undefined,
+          state.gflags.fields ? 'fields' : undefined,
+          state.gflags.quiet ? 'quiet' : undefined,
+        ].filter((value): value is string => value !== undefined);
+        if (conflictingOptions.length > 0) {
+          throw new CLIError(
+            'usage',
+            'RAW_OUTPUT_CONFLICT',
+            'export to stdout cannot be combined with protocol output options',
+            '',
+            [],
+            {
+              options: conflictingOptions,
+              hint: 'Use --export-format to choose the raw stdout format.',
+            },
+          );
+        }
+        const rendered = await renderNotesExport(cfg.dataDir, exportFormat);
+        process.stdout.write(rendered.content);
+        return;
+      }
+
       const result = exportFormat === 'csv'
         ? await exportNotesCSV(cfg.dataDir, filePath)
         : await exportNotes(cfg.dataDir, filePath);
@@ -670,7 +742,9 @@ Examples:
       const cfg = await ensureConfig(state);
       const { items } = await listNotes(cfg.dataDir, { limit: 1000 });
       if (items.length === 0) {
-        console.log(chalk.yellow('No notes to edit.'));
+        if (isHumanOutput(state)) {
+          console.log(chalk.yellow('No notes to edit.'));
+        }
         return;
       }
 
@@ -702,12 +776,16 @@ Examples:
       }
 
       if (Object.keys(req).length <= 1) {
-        console.log(chalk.gray('No changes made.'));
+        if (isHumanOutput(state)) {
+          console.log(chalk.gray('No changes made.'));
+        }
         return;
       }
 
       const updated = await updateNote(cfg.dataDir, req);
-      console.log('Updated note', chalk.bold(updated.id));
+      if (isHumanOutput(state)) {
+        console.log('Updated note', chalk.bold(updated.id));
+      }
       emit(updated, makeOutputOptions(state));
     });
 

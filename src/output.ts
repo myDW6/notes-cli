@@ -12,6 +12,7 @@ export type OutputFormat = 'json' | 'jsonl' | 'table';
 export interface OutputOptions {
   output: OutputFormat;
   pretty: boolean;
+  quiet: boolean;
   command: string;
   requestId: string;
   fields?: string[]; // dot-path 字段过滤，如 ["id", "title"]
@@ -36,8 +37,9 @@ export interface BatchResultOutput {
  * 把任意数据渲染为 JSON 或表格
  */
 export function emit(data: unknown, opt: OutputOptions): void {
+  if (opt.quiet) return;
   const projected = opt.fields && opt.fields.length > 0
-    ? projectFields(data, opt.fields)
+    ? projectData(data, opt.fields)
     : data;
 
   if (opt.output === 'table') {
@@ -61,8 +63,14 @@ export function emitList<T>(
   info: { next?: string; hasMore: boolean },
   opt: OutputOptions,
 ): void {
+  if (opt.quiet) return;
   if (opt.output === 'table') {
-    emitTable(items, opt);
+    emitTable(
+      opt.fields && opt.fields.length > 0
+        ? items.map((item) => projectFields(item, opt.fields!))
+        : items,
+      opt,
+    );
     if (info.hasMore && info.next) {
       console.log(chalk.gray(`\n(more results - re-run with --cursor ${info.next})`));
     }
@@ -150,4 +158,22 @@ function projectFields(data: unknown, fields: string[]): unknown {
     if (f in data) result[f] = (data as Record<string, unknown>)[f];
   }
   return result;
+}
+
+function projectData(data: unknown, fields: string[]): unknown {
+  if (Array.isArray(data)) {
+    return data.map((item) => projectFields(item, fields));
+  }
+  if (typeof data !== 'object' || data === null) {
+    return data;
+  }
+
+  const record = data as Record<string, unknown>;
+  if (Array.isArray(record.items)) {
+    return {
+      ...record,
+      items: record.items.map((item) => projectFields(item, fields)),
+    };
+  }
+  return projectFields(data, fields);
 }
