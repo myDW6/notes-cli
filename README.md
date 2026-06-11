@@ -213,6 +213,26 @@ Supported levels are `error`, `warn`, `info`, and `debug`. `--log-level` and
 `--log-format` require `--log-file`; logs never share stdout with results or
 stderr with structured machine errors.
 
+## Automatic retries
+
+Retries are disabled by default. Safe commands can opt in with:
+
+```bash
+notes list --output json --max-retries 3
+notes create --title "CLI" \
+  --idempotency-key request-123 \
+  --max-retries 3 \
+  --output json
+```
+
+`--max-retries 3` means one initial attempt plus at most three retries. The CLI
+only retries structured errors marked `retryable: true`, uses bounded
+exponential backoff with jitter, and honors `details.retryAfterMs`.
+
+Read operations are retry-safe. Create requires `--idempotency-key`; unsafe
+writes fail with `UNSAFE_RETRY` before execution. The command-wide `--timeout`
+includes operation time and backoff waits instead of resetting for each attempt.
+
 ## Unix composition
 
 Use `-` only when explicitly reading from stdin or writing raw export content to

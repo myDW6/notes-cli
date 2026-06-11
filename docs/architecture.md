@@ -17,6 +17,7 @@ src/
     output.ts          成功与失败输出协议
     execution.ts       交互、TTY 与输出模式
     logger.ts          独立诊断日志、脱敏与请求关联
+    retry.ts           幂等约束、退避抖动与取消感知重试
     cancellation.ts    超时、信号与统一 AbortSignal
     process.ts         broken pipe 等进程边界
 
@@ -81,6 +82,7 @@ emitList()     输出分页列表
 humanOutput    判断是否允许人类提示
 state          访问 requestId、mode 和 exitCode 等执行状态
 log()          写入与本次 requestId 关联的诊断事件
+run()          在声明过幂等性的边界执行可选自动重试
 ```
 
 这避免每个 command action 重复拼装输出参数、重新加载配置或自行判断机器模式。
@@ -102,6 +104,16 @@ stderr       单个结构化错误文档，或人类模式警告
 
 日志写入采用 best-effort 语义：运行期间的日志设备故障不会覆盖命令原本
 的结果、结构化错误或退出码。
+
+## Retry Boundary
+
+自动重试默认关闭。`CommandContext.run()` 要求命令明确声明当前操作是否
+幂等；开启 `--max-retries` 后，非幂等操作会在执行前返回
+`UNSAFE_RETRY`。
+
+重试执行器只处理带有 `retryable: true` 的 `CLIError`，使用有上限的
+指数退避和抖动，并优先尊重错误详情中的 `retryAfterMs`。退避等待使用
+同一个全局 `AbortSignal`，因此不会为每次尝试重置 `--timeout`。
 
 ## Adding A Command
 
