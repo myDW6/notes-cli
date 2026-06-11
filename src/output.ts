@@ -5,17 +5,22 @@
 import chalk from 'chalk';
 import type { CLIError } from './errors.js';
 
-export type OutputFormat = 'json' | 'table';
+export const API_VERSION = 'notes.cli/v1' as const;
+
+export type OutputFormat = 'json' | 'jsonl' | 'table';
 
 export interface OutputOptions {
-  format: OutputFormat;
+  output: OutputFormat;
   pretty: boolean;
+  command: string;
+  requestId: string;
   fields?: string[]; // dot-path 字段过滤，如 ["id", "title"]
 }
 
-let globalPretty = false;
-export function setGlobalPretty(v: boolean) {
-  globalPretty = v;
+export interface ErrorOutputOptions {
+  command: string;
+  requestId: string;
+  pretty: boolean;
 }
 
 /**
@@ -26,10 +31,16 @@ export function emit(data: unknown, opt: OutputOptions): void {
     ? projectFields(data, opt.fields)
     : data;
 
-  if (opt.format === 'table') {
+  if (opt.output === 'table') {
     emitTable(projected, opt);
   } else {
-    emitJSON(projected, opt.pretty);
+    emitJSON({
+      ok: true,
+      apiVersion: API_VERSION,
+      command: opt.command,
+      requestId: opt.requestId,
+      data: projected,
+    }, opt.pretty && opt.output === 'json');
   }
 }
 
@@ -41,23 +52,32 @@ export function emitList<T>(
   info: { next?: string; hasMore: boolean },
   opt: OutputOptions,
 ): void {
-  if (opt.format === 'table') {
+  if (opt.output === 'table') {
     emitTable(items, opt);
     if (info.hasMore && info.next) {
-      console.log(chalk.gray(`\n(more results — re-run with --cursor ${info.next})`));
+      console.log(chalk.gray(`\n(more results - re-run with --cursor ${info.next})`));
     }
   } else {
-    const envelope: Record<string, unknown> = { items, has_more: info.hasMore };
-    if (info.next) envelope.next = info.next;
-    emitJSON(envelope, opt.pretty);
+    const page: Record<string, unknown> = { hasMore: info.hasMore };
+    if (info.next) page.nextCursor = info.next;
+    emit({
+      items,
+      page,
+    }, opt);
   }
 }
 
 /**
  * 错误输出到 stderr（始终 JSON）
  */
-export function emitError(err: CLIError, pretty = globalPretty): void {
-  const json = JSON.stringify(err.toJSON(), null, pretty ? 2 : undefined);
+export function emitError(err: CLIError, opt: ErrorOutputOptions): void {
+  const json = JSON.stringify({
+    ok: false,
+    apiVersion: API_VERSION,
+    command: opt.command,
+    requestId: opt.requestId,
+    ...err.toJSON(),
+  }, null, opt.pretty ? 2 : undefined);
   console.error(json);
 }
 

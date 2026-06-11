@@ -72,6 +72,7 @@ export async function getNote(dataDir: string, id: string): Promise<Note> {
       `Note "${id}" not found`,
       'Check the ID or list all notes.',
       ['notes list'],
+      { id },
     );
   }
   return note;
@@ -103,6 +104,7 @@ export async function updateNote(dataDir: string, req: UpdateNoteReq): Promise<N
       `Note "${req.id}" not found`,
       '',
       ['notes list'],
+      { id: req.id },
     );
   }
   const existing = notes[idx];
@@ -128,6 +130,7 @@ export async function deleteNote(dataDir: string, id: string): Promise<void> {
       `Note "${id}" not found`,
       '',
       ['notes list'],
+      { id },
     );
   }
   notes.splice(idx, 1);

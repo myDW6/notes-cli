@@ -1,11 +1,12 @@
 # notes-cli
 
-A simple CLI for managing local notes, built with TypeScript and Commander.
+A local notes CLI built with TypeScript and Commander. It supports both
+interactive terminal use and deterministic, machine-readable Agent workflows.
 
 ## Installation
 
 ```bash
-npm install -g notes-cli
+npm install -g @shaodw/notes-cli
 ```
 
 ## Usage
@@ -14,9 +15,13 @@ npm install -g notes-cli
 # List all notes
 notes list
 
-# Create a note (interactive TUI when no flags provided)
+# Create a note
 notes create --title "Hello" --content "World"
 notes create
+
+# Create from structured input
+notes create --input note.json
+cat note.json | notes create --input - --output json
 
 # Get a note by ID
 notes get <id>
@@ -29,6 +34,9 @@ notes update <id> --title "New title"
 
 # Delete a note (requires --yes)
 notes delete <id> --yes
+
+# Preview a write without changing data
+notes delete <id> --dry-run --output json
 
 # Export notes
 notes export backup.json --export-format json
@@ -45,9 +53,41 @@ notes config init
 
 | Option | Description |
 |--------|-------------|
-| `-f, --format <fmt>` | Output format: `json` or `table` |
-| `--pretty` | Colorize JSON output |
+| `-o, --output <format>` | Output format: `table`, `json`, or `jsonl` |
+| `--pretty` | Pretty-print JSON output |
+| `--no-input` | Disable interactive prompts |
+| `--interactive` | Require interactive prompts and a TTY |
 | `--config <path>` | Config directory |
+| `--data-dir <path>` | Override the configured data directory |
+
+## Agent usage
+
+For deterministic automation, explicitly disable prompts and request JSON:
+
+```bash
+notes create \
+  --title "Agent note" \
+  --no-input \
+  --output json
+```
+
+Successful machine output uses a stable envelope:
+
+```json
+{
+  "ok": true,
+  "apiVersion": "notes.cli/v1",
+  "command": "create",
+  "requestId": "req_...",
+  "data": {
+    "id": "..."
+  }
+}
+```
+
+Failures return a non-zero exit code, leave stdout empty, and write a structured
+error envelope to stderr. Machine-readable output never prompts or includes
+colors and success decorations.
 
 ## Configuration
 

@@ -1,5 +1,5 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
-import { emit, emitList, emitError, setGlobalPretty } from './output.js';
+import { emit, emitList, emitError } from './output.js';
 import { CLIError } from './errors.js';
 
 describe('output', () => {
@@ -18,29 +18,65 @@ describe('output', () => {
   });
 
   it('emits JSON by default', () => {
-    emit({ name: 'test' }, { format: 'json', pretty: false });
-    expect(logs[0]).toBe('{"name":"test"}');
+    emit(
+      { name: 'test' },
+      {
+        output: 'json',
+        pretty: false,
+        command: 'create',
+        requestId: 'req_test',
+      },
+    );
+    expect(JSON.parse(logs[0] as string)).toEqual({
+      ok: true,
+      apiVersion: 'notes.cli/v1',
+      command: 'create',
+      requestId: 'req_test',
+      data: { name: 'test' },
+    });
   });
 
   it('emits pretty JSON', () => {
-    emit({ name: 'test' }, { format: 'json', pretty: true });
+    emit(
+      { name: 'test' },
+      {
+        output: 'json',
+        pretty: true,
+        command: 'create',
+        requestId: 'req_test',
+      },
+    );
     expect(logs[0]).toContain('\n');
   });
 
   it('emits list envelope in JSON', () => {
-    emitList([{ id: '1' }], { hasMore: true, next: '10' }, { format: 'json', pretty: false });
+    emitList(
+      [{ id: '1' }],
+      { hasMore: true, next: '10' },
+      {
+        output: 'json',
+        pretty: false,
+        command: 'list',
+        requestId: 'req_test',
+      },
+    );
     const parsed = JSON.parse(logs[0] as string);
-    expect(parsed.items).toHaveLength(1);
-    expect(parsed.has_more).toBe(true);
-    expect(parsed.next).toBe('10');
+    expect(parsed.data.items).toHaveLength(1);
+    expect(parsed.data.page.hasMore).toBe(true);
+    expect(parsed.data.page.nextCursor).toBe('10');
   });
 
   it('emits error as JSON to stderr', () => {
     const err = new CLIError('not_found', 'MISSING', 'Not found', 'Try again', ['notes list']);
-    setGlobalPretty(false);
-    emitError(err);
+    emitError(err, {
+      command: 'get',
+      requestId: 'req_test',
+      pretty: false,
+    });
     expect(errors).toHaveLength(1);
     const parsed = JSON.parse(errors[0] as string);
+    expect(parsed.ok).toBe(false);
+    expect(parsed.command).toBe('get');
     expect(parsed.error.code).toBe('MISSING');
     expect(parsed.error.nextSteps).toEqual(['notes list']);
   });

@@ -2,11 +2,12 @@
  * 命令树定义
  * 对应 confluence-cli 的 internal/app/ 下的所有命令文件
  *
- * 用 commander 构建命令树，每个命令的 RunE 对应一个处理函数。
+ * Commander 只负责参数解析；这里同时维护 CLI 的输入、输出和交互契约。
  */
-import { Command } from 'commander';
+import fs from 'node:fs/promises';
+import { Command, CommanderError, Option } from 'commander';
 import chalk from 'chalk';
-import { input, select } from '@inquirer/prompts';
+import { confirm, input, select } from '@inquirer/prompts';
 import { loadConfig, initConfig } from './config.js';
 import {
   listNotes,
@@ -20,150 +21,453 @@ import {
   exportNotes,
   exportNotesCSV,
 } from './storage.js';
-import { emit, emitList, emitError, setGlobalPretty } from './output.js';
+import { emit, emitList, emitError } from './output.js';
 import { CLIError, exitCode, isCLIError } from './errors.js';
-import type { OutputOptions } from './output.js';
-
-// ---------- 共享状态 ----------
+import { createRequestId, resolveExecutionMode } from './execution.js';
+import type { ExecutionMode } from './execution.js';
+import type { OutputFormat, OutputOptions } from './output.js';
+import type { CreateNoteReq } from './types.js';
 
 interface GlobalFlags {
   config?: string;
   dataDir?: string;
-  format?: string;
+  output?: string;
+  legacyFormat?: string;
   pretty: boolean;
+  noInput: boolean;
+  interactive: boolean;
 }
 
 interface AppState {
   gflags: GlobalFlags;
-  configLoaded: boolean;
+  requestId: string;
+  commandName: string;
+  mode?: ExecutionMode;
   _config?: Awaited<ReturnType<typeof loadConfig>>;
 }
 
-function newAppState(): AppState {
-  return { gflags: { pretty: false }, configLoaded: false };
+const COMMAND_NAMES = [
+  'list',
+  'get',
+  'create',
+  'update',
+  'delete',
+  'search',
+  'export',
+  'interactive-edit',
+  'config',
+];
+
+function readRawOption(argv: string[], longName: string, shortName?: string): string | undefined {
+  const args = argv.slice(2);
+  for (let i = 0; i < args.length; i += 1) {
+    const arg = args[i];
+    if (arg === longName || (shortName && arg === shortName)) {
+      return args[i + 1];
+    }
+    if (arg.startsWith(`${longName}=`)) {
+      return arg.slice(longName.length + 1);
+    }
+  }
+  return undefined;
+}
+
+function inferCommand(argv: string[]): string {
+  return argv.slice(2).find((arg) => COMMAND_NAMES.includes(arg)) ?? 'notes';
+}
+
+function newAppState(argv: string[] = process.argv): AppState {
+  return {
+    gflags: {
+      output: readRawOption(argv, '--output', '-o'),
+      legacyFormat: readRawOption(argv, '--format', '-f'),
+      pretty: argv.slice(2).includes('--pretty'),
+      noInput: argv.slice(2).includes('--no-input'),
+      interactive: argv.slice(2).includes('--interactive'),
+    },
+    requestId: createRequestId(),
+    commandName: inferCommand(argv),
+  };
+}
+
+function parseOutputFormat(value: string): OutputFormat {
+  if (value === 'table' || value === 'json' || value === 'jsonl') {
+    return value;
+  }
+  throw new CLIError(
+    'usage',
+    'INVALID_ARGUMENT',
+    '--output must be one of: table, json, jsonl',
+    '',
+    [],
+    { argument: 'output', value, expected: ['table', 'json', 'jsonl'] },
+  );
+}
+
+function resolveOutputFlag(flags: GlobalFlags): string | undefined {
+  if (flags.output && flags.legacyFormat && flags.output !== flags.legacyFormat) {
+    throw new CLIError(
+      'usage',
+      'CONFLICTING_OPTIONS',
+      '--output cannot be combined with a different --format value',
+      '',
+      [],
+      { options: ['output', 'format'] },
+    );
+  }
+  return flags.output ?? flags.legacyFormat;
 }
 
 async function ensureConfig(s: AppState): Promise<NonNullable<AppState['_config']>> {
   if (s._config) return s._config;
+  const output = resolveOutputFlag(s.gflags);
+  if (output) parseOutputFormat(output);
   s._config = await loadConfig({
     configPath: s.gflags.config,
     dataDir: s.gflags.dataDir,
-    format: s.gflags.format,
+    output,
   });
-  s.configLoaded = true;
   return s._config;
 }
 
 function makeOutputOptions(s: AppState): OutputOptions {
-  const cfg = s._config;
-  const format = (s.gflags.format as 'json' | 'table') ?? cfg?.defaultFormat ?? 'table';
+  if (!s.mode) {
+    throw new CLIError('internal', 'MODE_NOT_RESOLVED', 'Execution mode was not resolved');
+  }
   return {
-    format,
+    output: s.mode.output,
     pretty: s.gflags.pretty,
+    command: s.commandName,
+    requestId: s.requestId,
   };
 }
 
-// ---------- 命令构建 ----------
+function isHumanOutput(s: AppState): boolean {
+  return s.mode?.output === 'table';
+}
 
-export function buildCLI(): Command {
-  const state = newAppState();
+function parseLimit(raw: string): number {
+  if (!/^\d+$/.test(raw)) {
+    throw new CLIError(
+      'usage',
+      'INVALID_ARGUMENT',
+      '--limit must be an integer between 1 and 1000',
+      '',
+      [],
+      { argument: 'limit', value: raw, expected: 'integer between 1 and 1000' },
+    );
+  }
+  const value = Number(raw);
+  if (value < 1 || value > 1000) {
+    throw new CLIError(
+      'usage',
+      'INVALID_ARGUMENT',
+      '--limit must be an integer between 1 and 1000',
+      '',
+      [],
+      { argument: 'limit', value: raw, expected: 'integer between 1 and 1000' },
+    );
+  }
+  return value;
+}
 
+function parseTags(raw: string | undefined): string[] {
+  if (!raw) return [];
+  return raw.split(',').map((tag) => tag.trim()).filter(Boolean);
+}
+
+function validateCreateRequest(value: unknown): CreateNoteReq {
+  if (typeof value !== 'object' || value === null || Array.isArray(value)) {
+    throw new CLIError(
+      'usage',
+      'INVALID_INPUT',
+      'Create input must be a JSON object',
+      '',
+      [],
+      { expected: 'object' },
+    );
+  }
+
+  const record = value as Record<string, unknown>;
+  if (typeof record.title !== 'string' || record.title.trim() === '') {
+    throw new CLIError(
+      'usage',
+      'MISSING_REQUIRED_INPUT',
+      'title is required',
+      '',
+      [],
+      { field: 'title' },
+    );
+  }
+  if (record.content !== undefined && typeof record.content !== 'string') {
+    throw new CLIError(
+      'usage',
+      'INVALID_INPUT',
+      'content must be a string',
+      '',
+      [],
+      { field: 'content', expected: 'string' },
+    );
+  }
+  if (
+    record.tags !== undefined &&
+    (!Array.isArray(record.tags) || record.tags.some((tag) => typeof tag !== 'string'))
+  ) {
+    throw new CLIError(
+      'usage',
+      'INVALID_INPUT',
+      'tags must be an array of strings',
+      '',
+      [],
+      { field: 'tags', expected: 'string[]' },
+    );
+  }
+
+  return {
+    title: record.title.trim(),
+    content: (record.content as string | undefined) ?? '',
+    tags: (record.tags as string[] | undefined)?.map((tag) => tag.trim()).filter(Boolean) ?? [],
+  };
+}
+
+async function readCreateInput(inputPath: string): Promise<CreateNoteReq> {
+  let raw: string;
+  try {
+    raw = inputPath === '-'
+      ? await readStdin()
+      : await fs.readFile(inputPath, 'utf-8');
+  } catch (err) {
+    throw new CLIError(
+      'usage',
+      'INPUT_READ_ERROR',
+      `Failed to read create input: ${(err as Error).message}`,
+      '',
+      [],
+      { path: inputPath },
+    );
+  }
+
+  try {
+    return validateCreateRequest(JSON.parse(raw) as unknown);
+  } catch (err) {
+    if (isCLIError(err)) throw err;
+    throw new CLIError(
+      'usage',
+      'INVALID_INPUT_JSON',
+      'Create input is not valid JSON',
+      '',
+      [],
+      { path: inputPath },
+    );
+  }
+}
+
+async function readStdin(): Promise<string> {
+  const chunks: Buffer[] = [];
+  for await (const chunk of process.stdin) {
+    chunks.push(Buffer.isBuffer(chunk) ? chunk : Buffer.from(chunk));
+  }
+  return Buffer.concat(chunks).toString('utf-8');
+}
+
+async function resolveCreateRequest(options: {
+  title?: string;
+  content?: string;
+  tags?: string;
+  input?: string;
+}, state: AppState): Promise<CreateNoteReq> {
+  const hasFieldInput =
+    options.title !== undefined ||
+    options.content !== undefined ||
+    options.tags !== undefined;
+
+  if (options.input && hasFieldInput) {
+    throw new CLIError(
+      'usage',
+      'CONFLICTING_INPUT',
+      '--input cannot be combined with --title, --content or --tags',
+      '',
+      [],
+      { inputSources: ['input', 'field-options'] },
+    );
+  }
+
+  if (options.input) {
+    return readCreateInput(options.input);
+  }
+
+  let title = options.title;
+  let content = options.content;
+  let tagsRaw = options.tags;
+
+  if (title === undefined && state.mode?.interactive) {
+    title = await input({ message: 'Note title:' });
+  }
+
+  if (title === undefined || title.trim() === '') {
+    throw new CLIError(
+      'usage',
+      'MISSING_REQUIRED_INPUT',
+      'title is required',
+      '',
+      [],
+      { field: 'title' },
+    );
+  }
+
+  if (!hasFieldInput && state.mode?.interactive) {
+    content = await input({ message: 'Content:' });
+    tagsRaw = await input({ message: 'Tags (optional):' });
+  }
+
+  return {
+    title: title.trim(),
+    content: content ?? '',
+    tags: parseTags(tagsRaw),
+  };
+}
+
+export function buildCLI(state: AppState = newAppState()): Command {
   const program = new Command();
   program
     .name('notes')
     .description('A CLI for managing local notes')
     .version('1.0.0')
-    .configureOutput({ writeErr: (str) => process.stderr.write(str) })
-    // 全局持久化选项（对应 cobra 的 PersistentFlags）
+    .exitOverride()
+    .configureOutput({
+      writeErr: () => {
+        // Commander parse errors are converted to the structured error protocol in execute().
+      },
+    })
+    .configureHelp({ showGlobalOptions: true })
     .option('-c, --config <path>', 'config directory')
     .option('--data-dir <path>', 'data directory (overrides config)')
-    .option('-f, --format <fmt>', 'output format: json or table')
-    .option('--pretty', 'colorize JSON output', false)
-    .hook('preAction', async (thisCommand) => {
-      // 在每个命令执行前：解析全局选项并加载配置
-      const opts = thisCommand.opts();
+    .option('-o, --output <format>', 'output format: table, json or jsonl')
+    .addOption(new Option('-f, --format <format>').hideHelp())
+    .option('--pretty', 'pretty-print JSON output', false)
+    .option('--no-input', 'disable interactive prompts')
+    .option('--interactive', 'require interactive prompts', false)
+    .hook('preAction', async (_thisCommand, actionCommand) => {
+      const opts = actionCommand.optsWithGlobals();
+      state.commandName = actionCommand.name();
       state.gflags = {
         config: opts.config,
         dataDir: opts.dataDir,
-        format: opts.format,
+        output: opts.output,
+        legacyFormat: opts.format,
         pretty: opts.pretty,
+        noInput: opts.input === false,
+        interactive: opts.interactive,
       };
-      setGlobalPretty(opts.pretty);
-      await ensureConfig(state);
+
+      const cfg = await ensureConfig(state);
+      const outputValue = resolveOutputFlag(state.gflags);
+      const output = outputValue
+        ? parseOutputFormat(outputValue)
+        : cfg.defaultFormat;
+
+      if (output === 'jsonl' && state.gflags.pretty) {
+        throw new CLIError(
+          'usage',
+          'CONFLICTING_OPTIONS',
+          '--pretty cannot be combined with --output jsonl',
+          '',
+          [],
+          { options: ['pretty', 'output'], output },
+        );
+      }
+
+      state.mode = resolveExecutionMode({
+        output,
+        noInput: state.gflags.noInput,
+        interactive: state.gflags.interactive,
+        stdinIsTTY: process.stdin.isTTY,
+        stdoutIsTTY: process.stdout.isTTY,
+      });
     });
 
-  // --- notes list ---
   program
     .command('list')
-    .description('List all notes')
-    .option('-l, --limit <n>', 'page size', '25')
-    .option('--cursor <cursor>', 'pagination cursor')
+    .description('List notes')
+    .option('-l, --limit <n>', 'page size')
+    .option('--cursor <cursor>', 'opaque pagination cursor')
     .option('--all', 'fetch all pages', false)
     .action(async (options) => {
       const cfg = await ensureConfig(state);
-      const limit = parseInt(options.limit, 10);
+      const limit = parseLimit(options.limit ?? String(cfg.pageSize));
       const cursor = options.cursor as string | undefined;
 
-      if (options.all) {
-        // 收集所有分页
-        const allItems: Awaited<ReturnType<typeof listNotes>>['items'] = [];
-        let c: string | undefined = cursor;
-        while (true) {
-          const page = await listNotes(cfg.dataDir, { limit, cursor: c });
-          allItems.push(...page.items);
-          if (!page.hasMore) break;
-          c = page.next;
-        }
-        emit(allItems, makeOutputOptions(state));
-      } else {
-        const page = await listNotes(cfg.dataDir, { limit, cursor });
-        emitList(page.items, { hasMore: page.hasMore, next: page.next }, makeOutputOptions(state));
+      if (options.all && cursor) {
+        throw new CLIError(
+          'usage',
+          'CONFLICTING_OPTIONS',
+          '--all cannot be combined with --cursor',
+          '',
+          [],
+          { options: ['all', 'cursor'] },
+        );
       }
+
+      if (options.all) {
+        const allItems: Awaited<ReturnType<typeof listNotes>>['items'] = [];
+        let next: string | undefined;
+        do {
+          const page = await listNotes(cfg.dataDir, { limit, cursor: next });
+          allItems.push(...page.items);
+          next = page.next;
+        } while (next);
+        emitList(allItems, { hasMore: false }, makeOutputOptions(state));
+        return;
+      }
+
+      const page = await listNotes(cfg.dataDir, { limit, cursor });
+      emitList(page.items, { hasMore: page.hasMore, next: page.next }, makeOutputOptions(state));
     });
 
-  // --- notes get <id> ---
   program
     .command('get <id>')
     .description('Get a note by ID')
     .action(async (id: string) => {
       const cfg = await ensureConfig(state);
-      const note = await getNote(cfg.dataDir, id);
-      emit(note, makeOutputOptions(state));
+      emit(await getNote(cfg.dataDir, id), makeOutputOptions(state));
     });
 
-  // --- notes create ---
   program
     .command('create')
-    .description('Create a new note')
+    .description('Create a note using field options, JSON input, or interactive input')
     .option('-t, --title <title>', 'note title')
     .option('--content <content>', 'note content')
     .option('--tags <tags>', 'comma-separated tags')
-    .option('--dry-run', 'preview the request without creating', false)
+    .option('--input <path|->', 'read JSON input; use "-" for stdin')
+    .option('--dry-run', 'validate and preview without writing', false)
+    .addHelpText('after', `
+Examples:
+  notes create --title "CLI Design"
+  notes create --input note.json
+  cat note.json | notes create --input - --output json
+`)
     .action(async (options) => {
       const cfg = await ensureConfig(state);
-
-      // 交互式补全：如果没传参数，用 TUI 提问
-      const title = options.title ?? await input({ message: 'Note title:' });
-      const content = options.content ?? await input({ message: 'Content:' });
-      const tagsRaw = options.tags ?? await input({ message: 'Tags (optional):' });
-
-      const req = {
-        title: title as string,
-        content: content as string,
-        tags: tagsRaw ? String(tagsRaw).split(',').map((s: string) => s.trim()).filter(Boolean) : [],
-      };
+      const req = await resolveCreateRequest(options, state);
 
       if (options.dryRun) {
-        emit({ plan: describeCreate(req) }, makeOutputOptions(state));
+        emit({
+          operation: 'create',
+          executed: false,
+          willWrite: true,
+          normalizedInput: req,
+          plan: describeCreate(req),
+        }, makeOutputOptions(state));
         return;
       }
 
       const note = await createNote(cfg.dataDir, req);
-      console.log(chalk.green('✓'), 'Note created:', chalk.bold(note.id));
+      if (isHumanOutput(state)) {
+        console.log(chalk.green('Created note'), chalk.bold(note.id));
+      }
       emit(note, makeOutputOptions(state));
     });
 
-  // --- notes update <id> ---
   program
     .command('update <id>')
     .description('Update an existing note')
@@ -177,68 +481,82 @@ export function buildCLI(): Command {
         id,
         title: options.title as string | undefined,
         content: options.content as string | undefined,
-        tags: options.tags ? String(options.tags).split(',').map((s: string) => s.trim()) : undefined,
+        tags: options.tags ? parseTags(String(options.tags)) : undefined,
       };
 
       if (options.dryRun) {
-        emit({ plan: { action: 'update', ...req } }, makeOutputOptions(state));
+        emit({
+          operation: 'update',
+          executed: false,
+          willWrite: true,
+          normalizedInput: req,
+        }, makeOutputOptions(state));
         return;
       }
 
-      const note = await updateNote(cfg.dataDir, req);
-      emit(note, makeOutputOptions(state));
+      emit(await updateNote(cfg.dataDir, req), makeOutputOptions(state));
     });
 
-  // --- notes delete <id> ---
   program
     .command('delete <id>')
     .description('Delete a note')
-    .option('--yes', 'confirm deletion without prompt', false)
+    .option('--yes', 'confirm deletion without prompting', false)
     .option('--dry-run', 'preview the request without deleting', false)
     .action(async (id: string, options) => {
       const cfg = await ensureConfig(state);
 
       if (options.dryRun) {
-        emit({ plan: describeDelete(id) }, makeOutputOptions(state));
+        emit({
+          operation: 'delete',
+          executed: false,
+          willWrite: true,
+          plan: describeDelete(id),
+        }, makeOutputOptions(state));
         return;
       }
 
       if (!options.yes) {
-        throw new CLIError(
-          'usage',
-          'CONFIRM_REQUIRED',
-          'Deletion requires confirmation. Pass --yes to confirm.',
-          'This is a destructive operation.',
-          [`notes delete ${id} --yes`],
-        );
+        if (!state.mode?.interactive) {
+          throw new CLIError(
+            'usage',
+            'CONFIRMATION_REQUIRED',
+            'Deletion requires confirmation in non-interactive mode',
+            'Pass --yes to confirm this destructive operation.',
+            [`notes delete ${id} --yes`],
+            { id },
+          );
+        }
+        const accepted = await confirm({
+          message: `Delete note "${id}"?`,
+          default: false,
+        });
+        if (!accepted) {
+          emit({ deleted: false, id }, makeOutputOptions(state));
+          return;
+        }
       }
 
       await deleteNote(cfg.dataDir, id);
       emit({ deleted: true, id }, makeOutputOptions(state));
     });
 
-  // --- notes search <keyword> ---
   program
     .command('search <keyword>')
     .description('Search notes by keyword')
     .action(async (keyword: string) => {
       const cfg = await ensureConfig(state);
-      const hits = await searchNotes(cfg.dataDir, keyword);
-      emit(hits, makeOutputOptions(state));
+      emit({ items: await searchNotes(cfg.dataDir, keyword) }, makeOutputOptions(state));
     });
 
-  // --- notes export [path] ---
   program
     .command('export [path]')
     .description('Export all notes to a file')
-    .option('--export-format <fmt>', 'export file format: json or csv')
+    .option('--export-format <format>', 'export file format: json or csv')
     .option('--dry-run', 'preview the export without writing', false)
     .action(async (pathArg: string | undefined, options) => {
       const cfg = await ensureConfig(state);
-
-      // 交互式选择导出格式
       let exportFormat = options.exportFormat as string | undefined;
-      if (!exportFormat && process.stdin.isTTY) {
+      if (!exportFormat && state.mode?.interactive) {
         exportFormat = await select({
           message: 'Export format:',
           choices: [
@@ -248,75 +566,85 @@ export function buildCLI(): Command {
         });
       }
       exportFormat = exportFormat ?? 'json';
+      if (exportFormat !== 'json' && exportFormat !== 'csv') {
+        throw new CLIError(
+          'usage',
+          'INVALID_ARGUMENT',
+          '--export-format must be json or csv',
+          '',
+          [],
+          { argument: 'export-format', value: exportFormat, expected: ['json', 'csv'] },
+        );
+      }
 
       const filePath = pathArg ?? `notes-export.${exportFormat}`;
-
       if (options.dryRun) {
-        const notes = await listNotes(cfg.dataDir, { limit: 9999 });
+        const notes = await listNotes(cfg.dataDir, { limit: 1000 });
         emit({
-          plan: {
-            action: 'export',
-            filePath,
-            format: exportFormat,
-            count: notes.items.length,
-          },
+          operation: 'export',
+          executed: false,
+          willWrite: true,
+          filePath,
+          format: exportFormat,
+          count: notes.items.length,
         }, makeOutputOptions(state));
         return;
       }
 
-      const result =
-        exportFormat === 'csv'
-          ? await exportNotesCSV(cfg.dataDir, filePath)
-          : await exportNotes(cfg.dataDir, filePath);
+      const result = exportFormat === 'csv'
+        ? await exportNotesCSV(cfg.dataDir, filePath)
+        : await exportNotes(cfg.dataDir, filePath);
 
-      console.log(chalk.green('✓'), `Exported ${chalk.bold(result.count)} notes to ${chalk.bold(filePath)}`);
+      if (isHumanOutput(state)) {
+        console.log(`Exported ${result.count} notes to ${filePath}`);
+      }
       emit(result, makeOutputOptions(state));
     });
 
-  // --- notes interactive-edit ---
   program
     .command('interactive-edit')
     .description('Interactively select and edit a note')
     .action(async () => {
-      if (!process.stdin.isTTY) {
+      if (!state.mode?.interactive) {
         throw new CLIError(
           'usage',
           'TTY_REQUIRED',
-          'interactive-edit requires an interactive terminal',
-          'This command uses TUI prompts that need a real terminal.',
+          'interactive-edit requires interactive mode',
+          'This command uses prompts that need a real terminal.',
           ['notes update <id> --title "..." --content "..."'],
         );
       }
 
       const cfg = await ensureConfig(state);
-      const { items } = await listNotes(cfg.dataDir, { limit: 9999 });
-
+      const { items } = await listNotes(cfg.dataDir, { limit: 1000 });
       if (items.length === 0) {
         console.log(chalk.yellow('No notes to edit.'));
         return;
       }
 
-      const choices = items.map((n) => ({
-        name: `${n.title}  ${chalk.gray('[' + (n.tags.join(', ') || 'no tags') + ']')}`,
-        value: n.id,
-        description: n.content.slice(0, 60).replace(/\n/g, ' ') + (n.content.length > 60 ? '...' : ''),
-      }));
-
       const selectedId = await select({
         message: 'Select a note to edit:',
-        choices,
+        choices: items.map((note) => ({
+          name: `${note.title}  ${chalk.gray(`[${note.tags.join(', ') || 'no tags'}]`)}`,
+          value: note.id,
+          description:
+            note.content.slice(0, 60).replace(/\n/g, ' ') +
+            (note.content.length > 60 ? '...' : ''),
+        })),
+      });
+      const note = await getNote(cfg.dataDir, selectedId);
+      const title = await input({ message: `New title (keep "${note.title}"):` });
+      const content = await input({ message: 'New content (keep current):' });
+      const tagsRaw = await input({
+        message: `New tags (keep "${note.tags.join(', ') || 'none'}"):`,
       });
 
-      const note = await getNote(cfg.dataDir, selectedId);
-
-      const title = await input({ message: `New title (keep "${note.title}"):` });
-      const content = await input({ message: `New content (keep current):` });
-      const tagsRaw = await input({ message: `New tags (keep "${note.tags.join(', ') || 'none'}"):` });
-
-      const req: { id: string; title?: string; content?: string; tags?: string[] } = { id: selectedId };
+      const req: { id: string; title?: string; content?: string; tags?: string[] } = {
+        id: selectedId,
+      };
       if (title.trim()) req.title = title.trim();
       if (content.trim()) req.content = content.trim();
-      const tags = tagsRaw.split(',').map((s) => s.trim()).filter(Boolean);
+      const tags = parseTags(tagsRaw);
       if (tags.length > 0 && JSON.stringify(tags) !== JSON.stringify(note.tags)) {
         req.tags = tags;
       }
@@ -327,34 +655,54 @@ export function buildCLI(): Command {
       }
 
       const updated = await updateNote(cfg.dataDir, req);
-      console.log(chalk.green('✓'), 'Note updated:', chalk.bold(updated.id));
+      console.log('Updated note', chalk.bold(updated.id));
       emit(updated, makeOutputOptions(state));
     });
 
-  // --- notes config init ---
   program
     .command('config init')
     .description('Initialize configuration')
     .action(async () => {
-      await initConfig(state.gflags.config);
+      const result = await initConfig(state.gflags.config, state.mode?.interactive === true);
+      emit(result, makeOutputOptions(state));
     });
 
   return program;
 }
 
-/**
- * 执行 CLI，返回退出码
- * 对应 confluence-cli 的 app.Execute()
- */
 export async function execute(argv: string[]): Promise<number> {
-  const program = buildCLI();
+  const state = newAppState(argv);
+  const program = buildCLI(state);
 
   try {
     await program.parseAsync(argv);
     return 0;
   } catch (err) {
-    const ce = isCLIError(err) ? err : new CLIError('internal', 'INTERNAL', (err as Error).message);
-    emitError(ce);
+    if (
+      err instanceof CommanderError &&
+      (err.code === 'commander.helpDisplayed' || err.code === 'commander.version')
+    ) {
+      return 0;
+    }
+
+    const ce = isCLIError(err)
+      ? err
+      : err instanceof CommanderError
+        ? new CLIError(
+            'usage',
+            'INVALID_COMMAND_USAGE',
+            err.message,
+            '',
+            [],
+            { commanderCode: err.code },
+          )
+        : new CLIError('internal', 'INTERNAL', (err as Error).message);
+
+    emitError(ce, {
+      command: state.commandName,
+      requestId: state.requestId,
+      pretty: state.gflags.pretty,
+    });
     return exitCode(ce.category);
   }
 }

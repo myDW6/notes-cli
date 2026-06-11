@@ -19,6 +19,7 @@ export interface CLIErrorPayload {
     hint?: string;
     nextSteps?: string[];
     retryable: boolean;
+    details?: Record<string, unknown>;
   };
 }
 
@@ -28,6 +29,7 @@ export class CLIError extends Error {
   hint: string;
   nextSteps: string[];
   retryable: boolean;
+  details?: Record<string, unknown>;
 
   constructor(
     category: ErrorCategory,
@@ -35,6 +37,7 @@ export class CLIError extends Error {
     message: string,
     hint = '',
     nextSteps: string[] = [],
+    details?: Record<string, unknown>,
   ) {
     super(message);
     this.name = 'CLIError';
@@ -43,6 +46,7 @@ export class CLIError extends Error {
     this.hint = hint;
     this.nextSteps = nextSteps;
     this.retryable = ['conflict', 'internal'].includes(category);
+    this.details = details;
   }
 
   toJSON(): CLIErrorPayload {
@@ -56,6 +60,7 @@ export class CLIError extends Error {
     };
     if (this.hint) payload.error.hint = this.hint;
     if (this.nextSteps.length > 0) payload.error.nextSteps = this.nextSteps;
+    if (this.details) payload.error.details = this.details;
     return payload;
   }
 

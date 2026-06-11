@@ -23,7 +23,7 @@ const defaults: Config = {
 export interface LoadOptions {
   configPath?: string;   // --config 指定的目录
   dataDir?: string;      // --data-dir 标志
-  format?: string;       // --format 标志
+  output?: string;       // --output 标志
 }
 
 export interface ResolvedConfig extends Config {
@@ -71,8 +71,8 @@ export async function loadConfig(opt: LoadOptions): Promise<ResolvedConfig> {
   // 第 3 层：CLI flags
   const flagLayer: Partial<Config> = {};
   if (opt.dataDir) flagLayer.dataDir = opt.dataDir;
-  if (opt.format === 'json' || opt.format === 'table') {
-    flagLayer.defaultFormat = opt.format;
+  if (opt.output === 'json' || opt.output === 'table') {
+    flagLayer.defaultFormat = opt.output;
   }
 
   // 合并（后面的覆盖前面的）
@@ -85,7 +85,7 @@ export async function loadConfig(opt: LoadOptions): Promise<ResolvedConfig> {
 
   const sources: Record<string, string> = {};
   sources.dataDir = opt.dataDir ? 'flag' : process.env.NOTES_DATA_DIR ? 'env' : fileLayer.dataDir ? 'file' : 'default';
-  sources.defaultFormat = opt.format ? 'flag' : process.env.NOTES_FORMAT ? 'env' : fileLayer.defaultFormat ? 'file' : 'default';
+  sources.defaultFormat = opt.output ? 'flag' : process.env.NOTES_FORMAT ? 'env' : fileLayer.defaultFormat ? 'file' : 'default';
 
   return { ...merged, sources };
 }
@@ -93,18 +93,26 @@ export async function loadConfig(opt: LoadOptions): Promise<ResolvedConfig> {
 /**
  * 交互式初始化配置向导
  */
-export async function initConfig(configDir?: string): Promise<void> {
+export async function initConfig(
+  configDir?: string,
+  interactive = process.stdin.isTTY === true,
+): Promise<{
+  configDir: string;
+  dataDir: string;
+  defaultFormat: 'json' | 'table';
+  pageSize: number;
+}> {
   const dir = configDir ?? DEFAULT_CONFIG_DIR;
 
   // 交互式提问（仅在 TTY 环境下）
-  const dataDir = process.stdin.isTTY
+  const dataDir = interactive
     ? await input({
         message: 'Where should notes be stored?',
         default: path.join(dir, 'data'),
       })
     : path.join(dir, 'data');
 
-  const defaultFormat = process.stdin.isTTY
+  const defaultFormat = interactive
     ? await select({
         message: 'Default output format:',
         choices: [
@@ -115,7 +123,7 @@ export async function initConfig(configDir?: string): Promise<void> {
       })
     : 'table';
 
-  const pageSizeInput = process.stdin.isTTY
+  const pageSizeInput = interactive
     ? await input({
         message: 'Page size:',
         default: '25',
@@ -136,8 +144,10 @@ export async function initConfig(configDir?: string): Promise<void> {
   await fs.writeFile(path.join(dir, CONFIG_FILE), JSON.stringify(config, null, 2), 'utf-8');
   await fs.mkdir(config.dataDir, { recursive: true });
 
-  console.log(`Config initialized at ${dir}`);
-  console.log(`Data directory: ${config.dataDir}`);
-  console.log(`Default format: ${config.defaultFormat}`);
-  console.log(`Page size: ${config.pageSize}`);
+  return {
+    configDir: dir,
+    dataDir: config.dataDir,
+    defaultFormat: config.defaultFormat,
+    pageSize: config.pageSize,
+  };
 }
