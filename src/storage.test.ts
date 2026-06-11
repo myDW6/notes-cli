@@ -6,6 +6,7 @@ import {
   listNotes,
   getNote,
   createNote,
+  createNoteIdempotent,
   updateNote,
   deleteNote,
   searchNotes,
@@ -32,6 +33,65 @@ describe('storage', () => {
 
     const fetched = await getNote(dataDir, created.id);
     expect(fetched.title).toBe('Hello');
+  });
+
+  it('replays an idempotent create without adding another note', async () => {
+    const request = { title: 'A', content: '', tags: [] };
+    const first = await createNoteIdempotent(dataDir, request, 'task-123');
+    const replay = await createNoteIdempotent(dataDir, request, 'task-123');
+
+    expect(first.idempotency.replayed).toBe(false);
+    expect(replay.idempotency.replayed).toBe(true);
+    expect(replay.note).toEqual(first.note);
+    expect((await listNotes(dataDir, { limit: 10 })).items).toHaveLength(1);
+  });
+
+  it('rejects reusing an idempotency key with different input', async () => {
+    await createNoteIdempotent(
+      dataDir,
+      { title: 'A', content: '', tags: [] },
+      'task-123',
+    );
+
+    await expect(createNoteIdempotent(
+      dataDir,
+      { title: 'B', content: '', tags: [] },
+      'task-123',
+    )).rejects.toMatchObject({
+      category: 'conflict',
+      code: 'IDEMPOTENCY_KEY_REUSED',
+      retryable: false,
+      details: {
+        key: 'task-123',
+        command: 'create',
+      },
+    });
+  });
+
+  it('migrates the legacy notes array when writing new state', async () => {
+    const legacyNote = {
+      id: 'legacy',
+      title: 'Legacy',
+      content: '',
+      tags: [],
+      createdAt: '2026-01-01T00:00:00.000Z',
+      updatedAt: '2026-01-01T00:00:00.000Z',
+    };
+    await fs.writeFile(
+      path.join(dataDir, 'notes.json'),
+      JSON.stringify([legacyNote]),
+      'utf-8',
+    );
+
+    await createNote(dataDir, { title: 'New', content: '' });
+
+    const raw = await fs.readFile(path.join(dataDir, 'notes.json'), 'utf-8');
+    const state = JSON.parse(raw);
+    expect(state).toMatchObject({
+      schemaVersion: 2,
+      notes: [legacyNote, { title: 'New' }],
+      idempotency: {},
+    });
   });
 
   it('lists notes with pagination', async () => {

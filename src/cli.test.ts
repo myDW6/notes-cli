@@ -157,6 +157,103 @@ describe('CLI contract', () => {
     expect(payload.requestId).toMatch(/^req_/);
   });
 
+  it('replays create across processes when the idempotency key and input match', () => {
+    const dataDir = makeTempDir();
+    const args = [
+      'create',
+      '--title',
+      'Retry-safe note',
+      '--idempotency-key',
+      'task-123',
+      '--output',
+      'json',
+      '--data-dir',
+      dataDir,
+    ];
+
+    const first = runCLI(args);
+    const replay = runCLI(args);
+    const firstData = JSON.parse(first.stdout).data;
+    const replayData = JSON.parse(replay.stdout).data;
+
+    expect(first.status).toBe(0);
+    expect(replay.status).toBe(0);
+    expect(firstData.id).toBe(replayData.id);
+    expect(firstData.idempotency).toMatchObject({
+      key: 'task-123',
+      replayed: false,
+    });
+    expect(replayData.idempotency).toMatchObject({
+      key: 'task-123',
+      replayed: true,
+    });
+
+    const listed = runCLI([
+      'list',
+      '--all',
+      '--output',
+      'json',
+      '--data-dir',
+      dataDir,
+    ]);
+    expect(JSON.parse(listed.stdout).data.items).toHaveLength(1);
+  });
+
+  it('rejects an idempotency key reused with different create input', () => {
+    const dataDir = makeTempDir();
+    const commonArgs = [
+      '--idempotency-key',
+      'task-123',
+      '--output',
+      'json',
+      '--data-dir',
+      dataDir,
+    ];
+
+    const first = runCLI(['create', '--title', 'A', ...commonArgs]);
+    const conflict = runCLI(['create', '--title', 'B', ...commonArgs]);
+
+    expect(first.status).toBe(0);
+    expect(conflict.status).toBe(11);
+    expect(conflict.stdout).toBe('');
+    expect(JSON.parse(conflict.stderr)).toMatchObject({
+      error: {
+        category: 'conflict',
+        code: 'IDEMPOTENCY_KEY_REUSED',
+        retryable: false,
+        details: {
+          key: 'task-123',
+          command: 'create',
+        },
+      },
+    });
+  });
+
+  it('does not reserve an idempotency key during dry-run', () => {
+    const dataDir = makeTempDir();
+    const commonArgs = [
+      '--title',
+      'A',
+      '--idempotency-key',
+      'task-123',
+      '--output',
+      'json',
+      '--data-dir',
+      dataDir,
+    ];
+
+    const preview = runCLI(['create', '--dry-run', ...commonArgs]);
+    const created = runCLI(['create', ...commonArgs]);
+
+    expect(preview.status).toBe(0);
+    expect(JSON.parse(preview.stdout).data.idempotency).toMatchObject({
+      key: 'task-123',
+      stored: false,
+    });
+    expect(created.status).toBe(0);
+    expect(JSON.parse(created.stdout).data.idempotency.replayed).toBe(false);
+  });
+
   it('returns a structured error when required input is missing', () => {
     const result = runCLI([
       'create',

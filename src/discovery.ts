@@ -51,6 +51,8 @@ export const CLI_CAPABILITIES = {
       interactive: true,
       supportsDryRun: true,
       supportsStructuredInput: true,
+      supportsIdempotencyKey: true,
+      idempotencyRequired: false,
       inputSchema: CREATE_NOTE_INPUT_SCHEMA.$id,
     },
     get: {

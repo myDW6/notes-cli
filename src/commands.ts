@@ -13,6 +13,7 @@ import {
   listNotes,
   getNote,
   createNote,
+  createNoteIdempotent,
   updateNote,
   deleteNote,
   searchNotes,
@@ -24,6 +25,7 @@ import {
 import { emit, emitList, emitError } from './output.js';
 import { CLIError, exitCode, isCLIError } from './errors.js';
 import { createRequestId, resolveExecutionMode } from './execution.js';
+import { requestFingerprint } from './idempotency.js';
 import {
   CLI_CAPABILITIES,
   CREATE_NOTE_INPUT_SCHEMA,
@@ -181,6 +183,25 @@ function parseLimit(raw: string): number {
 function parseTags(raw: string | undefined): string[] {
   if (!raw) return [];
   return raw.split(',').map((tag) => tag.trim()).filter(Boolean);
+}
+
+function normalizeIdempotencyKey(raw: string): string {
+  const key = raw.trim();
+  if (key.length < 1 || key.length > 200) {
+    throw new CLIError(
+      'usage',
+      'INVALID_ARGUMENT',
+      '--idempotency-key must contain between 1 and 200 characters',
+      '',
+      [],
+      {
+        argument: 'idempotency-key',
+        valueLength: key.length,
+        expected: '1 to 200 characters',
+      },
+    );
+  }
+  return key;
 }
 
 async function readCreateInput(inputPath: string): Promise<CreateNoteReq> {
@@ -416,6 +437,7 @@ export function buildCLI(state: AppState = newAppState()): Command {
     .option('--content <content>', 'note content')
     .option('--tags <tags>', 'comma-separated tags')
     .option('--input <path|->', 'read JSON input; use "-" for stdin')
+    .option('--idempotency-key <key>', 'deduplicate retries of the same create request')
     .option('--dry-run', 'validate and preview without writing', false)
     .addHelpText('after', `
 Examples:
@@ -426,6 +448,9 @@ Examples:
     .action(async (options) => {
       const cfg = await ensureConfig(state);
       const req = await resolveCreateRequest(options, state);
+      const idempotencyKey = options.idempotencyKey
+        ? normalizeIdempotencyKey(String(options.idempotencyKey))
+        : undefined;
 
       if (options.dryRun) {
         emit({
@@ -434,15 +459,35 @@ Examples:
           willWrite: true,
           normalizedInput: req,
           plan: describeCreate(req),
+          ...(idempotencyKey
+            ? {
+                idempotency: {
+                  key: idempotencyKey,
+                  fingerprint: requestFingerprint(req),
+                  stored: false,
+                },
+              }
+            : {}),
         }, makeOutputOptions(state));
         return;
       }
 
-      const note = await createNote(cfg.dataDir, req);
+      const result = idempotencyKey
+        ? await createNoteIdempotent(cfg.dataDir, req, idempotencyKey)
+        : undefined;
+      const note = result?.note ?? await createNote(cfg.dataDir, req);
       if (isHumanOutput(state)) {
-        console.log(chalk.green('Created note'), chalk.bold(note.id));
+        console.log(
+          chalk.green(result?.idempotency.replayed ? 'Replayed note' : 'Created note'),
+          chalk.bold(note.id),
+        );
       }
-      emit(note, makeOutputOptions(state));
+      emit(
+        result
+          ? { ...note, idempotency: result.idempotency }
+          : note,
+        makeOutputOptions(state),
+      );
     });
 
   program

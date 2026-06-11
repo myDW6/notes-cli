@@ -12,6 +12,10 @@ describe('CLI discovery contracts', () => {
     expect(CLI_CAPABILITIES.commands.create.inputSchema).toBe(
       CREATE_NOTE_INPUT_SCHEMA.$id,
     );
+    expect(CLI_CAPABILITIES.commands.create).toMatchObject({
+      supportsIdempotencyKey: true,
+      idempotencyRequired: false,
+    });
   });
 
   it('normalizes defaults defined by the create schema', () => {

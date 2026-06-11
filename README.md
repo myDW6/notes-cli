@@ -23,6 +23,9 @@ notes create
 notes create --input note.json
 cat note.json | notes create --input - --output json
 
+# Make automated create retries safe
+notes create --title "Agent note" --idempotency-key task-123 --output json
+
 # Get a note by ID
 notes get <id>
 

@@ -38,6 +38,7 @@ export class CLIError extends Error {
     hint = '',
     nextSteps: string[] = [],
     details?: Record<string, unknown>,
+    retryable?: boolean,
   ) {
     super(message);
     this.name = 'CLIError';
@@ -45,7 +46,7 @@ export class CLIError extends Error {
     this.code = code;
     this.hint = hint;
     this.nextSteps = nextSteps;
-    this.retryable = ['conflict', 'internal'].includes(category);
+    this.retryable = retryable ?? ['conflict', 'internal'].includes(category);
     this.details = details;
   }
 
