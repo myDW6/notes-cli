@@ -5,6 +5,7 @@ import { emit, emitList } from './output.js';
 import { parseFields, parseOutputFormat } from './parsers.js';
 import type { ExecutionMode } from './execution.js';
 import type { OutputOptions } from './output.js';
+import type { LoadOptions } from '../config/resolver.js';
 
 export interface GlobalFlags {
   config?: string;
@@ -40,6 +41,7 @@ const COMMAND_NAMES = [
   'capabilities',
   'schema',
   'batch',
+  'doctor',
 ];
 
 function readRawOption(
@@ -95,17 +97,20 @@ export function resolveOutputFlag(flags: GlobalFlags): string | undefined {
   return flags.output ?? flags.legacyFormat;
 }
 
-export async function ensureConfig(state: AppState): Promise<NonNullable<AppState['config']>> {
-  if (state.config) return state.config;
+export function configLoadOptions(state: AppState): LoadOptions {
   const outputValue = resolveOutputFlag(state.gflags);
-  const output = outputValue ? parseOutputFormat(outputValue) : undefined;
-  state.config = await loadConfig({
+  return {
     configPath: state.gflags.config,
     dataDir: state.gflags.dataDir,
-    output,
+    output: outputValue ? parseOutputFormat(outputValue) : undefined,
     outputSourceName:
       state.gflags.output ? '--output' : state.gflags.legacyFormat ? '--format' : undefined,
-  });
+  };
+}
+
+export async function ensureConfig(state: AppState): Promise<NonNullable<AppState['config']>> {
+  if (state.config) return state.config;
+  state.config = await loadConfig(configLoadOptions(state));
   return state.config;
 }
 

@@ -102,6 +102,15 @@ export const CLI_CAPABILITIES = {
       supportsDryRun: false,
       supportsStructuredInput: false,
     },
+    doctor: {
+      readOnly: true,
+      destructive: false,
+      interactive: false,
+      supportsDryRun: false,
+      supportsStructuredInput: false,
+      aggregatesFailures: true,
+      checkStatuses: ['pass', 'warn', 'fail', 'skip'],
+    },
     'schema.create': {
       readOnly: true,
       destructive: false,

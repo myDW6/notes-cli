@@ -20,6 +20,7 @@ src/
 
   commands/
     discovery.ts       能力和 Schema 命令
+    doctor.ts          环境诊断命令
     config.ts          配置命令
     batch.ts           批处理命令
     notes-read.ts      只读 notes 命令
@@ -37,6 +38,9 @@ src/
   batch/
     processor.ts       JSONL 批处理服务
 
+  diagnostics/
+    doctor.ts          只读、可聚合的环境检查
+
   protocol/
     discovery.ts       Agent 能力描述和输入 Schema
 
@@ -47,6 +51,7 @@ tests/
     notes/             notes 领域与存储单元测试
     batch/             批处理服务单元测试
     protocol/          Agent 协议单元测试
+    diagnostics/       诊断服务单元测试
 
   integration/
     cli.test.ts        CLI 进程级端到端契约

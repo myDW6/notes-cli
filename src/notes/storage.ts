@@ -33,6 +33,12 @@ export interface IdempotentCreateResult {
   };
 }
 
+export interface StorageInspection {
+  path: string;
+  format: 'missing' | 'legacy-array' | 'v2' | 'unsupported';
+  schemaVersion?: number;
+}
+
 function getNotesPath(dataDir: string): string {
   return path.join(dataDir, NOTES_FILE);
 }
@@ -51,6 +57,52 @@ function emptyState(): StorageState {
     notes: [],
     idempotency: {},
   };
+}
+
+export async function inspectStorage(dataDir: string): Promise<StorageInspection> {
+  const filePath = getNotesPath(dataDir);
+  try {
+    const raw = await fs.readFile(filePath, 'utf-8');
+    const parsed = JSON.parse(raw) as unknown;
+    if (Array.isArray(parsed)) {
+      return { path: filePath, format: 'legacy-array' };
+    }
+    if (typeof parsed === 'object' && parsed !== null) {
+      const state = parsed as Partial<StorageState>;
+      if (
+        state.schemaVersion === STORAGE_SCHEMA_VERSION &&
+        Array.isArray(state.notes) &&
+        typeof state.idempotency === 'object' &&
+        state.idempotency !== null
+      ) {
+        return {
+          path: filePath,
+          format: 'v2',
+          schemaVersion: state.schemaVersion,
+        };
+      }
+      return {
+        path: filePath,
+        format: 'unsupported',
+        schemaVersion:
+          typeof state.schemaVersion === 'number' ? state.schemaVersion : undefined,
+      };
+    }
+    return { path: filePath, format: 'unsupported' };
+  } catch (err) {
+    if ((err as NodeJS.ErrnoException).code === 'ENOENT') {
+      return { path: filePath, format: 'missing' };
+    }
+    throw new CLIError(
+      'internal',
+      'READ_FAIL',
+      `Failed to inspect notes storage: ${(err as Error).message}`,
+      'Check that the storage file is readable and contains valid JSON.',
+      ['notes doctor --output json'],
+      { path: filePath },
+      false,
+    );
+  }
 }
 
 async function readState(dataDir: string): Promise<StorageState> {

@@ -4,6 +4,7 @@ import { CommandContext, createAppState } from './cli/runtime.js';
 import { registerBatchCommand } from './commands/batch.js';
 import { registerConfigCommands } from './commands/config.js';
 import { registerDiscoveryCommands } from './commands/discovery.js';
+import { registerDoctorCommand } from './commands/doctor.js';
 import { registerExportCommand } from './commands/export.js';
 import { registerReadCommands } from './commands/notes-read.js';
 import { registerWriteCommands } from './commands/notes-write.js';
@@ -13,6 +14,7 @@ import type { AppState } from './cli/runtime.js';
 
 function registerCommands(program: Command, context: CommandContext): void {
   registerDiscoveryCommands(program, context);
+  registerDoctorCommand(program, context);
   registerBatchCommand(program, context);
   registerReadCommands(program, context);
   registerWriteCommands(program, context);

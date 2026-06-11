@@ -83,12 +83,13 @@ export function configureProgram(program: Command, state: AppState): void {
       };
 
       const outputValue = resolveOutputFlag(state.gflags);
-      const isDiscoveryCommand =
+      const isConfigIndependentCommand =
         state.commandName === 'capabilities' ||
-        state.commandName.startsWith('schema.');
+        state.commandName.startsWith('schema.') ||
+        state.commandName === 'doctor';
       const output = outputValue
         ? parseOutputFormat(outputValue)
-        : isDiscoveryCommand
+        : isConfigIndependentCommand
           ? 'table'
           : (await ensureConfig(state)).output;
 

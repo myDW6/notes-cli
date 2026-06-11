@@ -159,6 +159,70 @@ describe('CLI contract', () => {
     expect(JSON.parse(schema.stdout).command).toBe('schema.create');
   });
 
+  it('reports an uninitialized environment as a successful doctor warning', () => {
+    const configDir = makeTempDir();
+    const result = runCLI([
+      'doctor',
+      '--output',
+      'json',
+      '--config',
+      path.join(configDir, 'missing-config'),
+    ], undefined, {
+      NOTES_DATA_DIR: undefined,
+      NOTES_FORMAT: undefined,
+    });
+
+    expect(result.status).toBe(0);
+    expect(result.stderr).toBe('');
+    expect(JSON.parse(result.stdout)).toMatchObject({
+      ok: true,
+      command: 'doctor',
+      data: {
+        status: 'warn',
+        checks: expect.arrayContaining([
+          expect.objectContaining({ id: 'runtime.node', status: 'pass' }),
+          expect.objectContaining({ id: 'dataDir.type', status: 'warn' }),
+          expect.objectContaining({ id: 'storage.format', status: 'skip' }),
+        ]),
+      },
+    });
+  });
+
+  it('aggregates doctor failures in a success envelope and exits non-zero', () => {
+    const configDir = makeTempDir();
+    fs.writeFileSync(path.join(configDir, 'config.json'), '{invalid json');
+
+    const result = runCLI([
+      'doctor',
+      '--output',
+      'json',
+      '--config',
+      configDir,
+    ], undefined, {
+      NOTES_DATA_DIR: undefined,
+      NOTES_FORMAT: undefined,
+    });
+
+    expect(result.status).toBe(1);
+    expect(result.stderr).toBe('');
+    expect(JSON.parse(result.stdout)).toMatchObject({
+      ok: true,
+      command: 'doctor',
+      data: {
+        status: 'fail',
+        checks: expect.arrayContaining([
+          expect.objectContaining({ id: 'runtime.node', status: 'pass' }),
+          expect.objectContaining({
+            id: 'config.resolve',
+            status: 'fail',
+            details: expect.objectContaining({ code: 'CONFIG_PARSE_ERROR' }),
+          }),
+          expect.objectContaining({ id: 'dataDir.writable', status: 'skip' }),
+        ]),
+      },
+    });
+  });
+
   it('explains effective config values and their sources', () => {
     const root = makeTempDir();
     const configDir = path.join(root, 'config');

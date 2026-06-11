@@ -38,6 +38,15 @@ describe('CLI discovery contracts', () => {
     });
   });
 
+  it('publishes aggregate doctor diagnostics', () => {
+    expect(CLI_CAPABILITIES.commands.doctor).toMatchObject({
+      readOnly: true,
+      interactive: false,
+      aggregatesFailures: true,
+      checkStatuses: ['pass', 'warn', 'fail', 'skip'],
+    });
+  });
+
   it('normalizes defaults defined by the create schema', () => {
     expect(validateCreateInput({ title: '  A  ' })).toEqual({
       title: 'A',

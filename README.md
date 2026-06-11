@@ -66,6 +66,9 @@ notes config init
 
 # Explain the final configuration and where every value came from
 notes config effective --output json
+
+# Diagnose runtime, configuration, data directory, and storage health
+notes doctor --output json
 ```
 
 ## Global Options
@@ -117,6 +120,7 @@ without parsing help text:
 notes capabilities --output json
 notes schema create --output json
 notes config effective --output json
+notes doctor --output json
 ```
 
 The create schema rejects unknown fields instead of silently ignoring likely
@@ -146,6 +150,15 @@ Configuration, notes, batch, and Agent protocol modules have their own
 directories and do not depend on Commander. See
 [`docs/architecture.md`](docs/architecture.md) for the dependency rules.
 Tests live under `tests/unit/` and `tests/integration/`.
+
+## Diagnostics
+
+`notes doctor` performs read-only checks with stable IDs and the statuses
+`pass`, `warn`, `fail`, and `skip`. It continues independent checks after a
+failure and never changes permissions or configuration.
+
+A completed diagnostic run uses the normal success envelope. When one or more
+checks fail, `data.status` is `fail` and the process exits with code `1`.
 
 ## Unix composition
 
