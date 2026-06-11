@@ -3,7 +3,7 @@
  * 对应 confluence-cli 的 internal/output/
  */
 import chalk from 'chalk';
-import type { CLIError } from './errors.js';
+import type { CLIError, CLIErrorPayload } from './errors.js';
 
 export const API_VERSION = 'notes.cli/v1' as const;
 
@@ -21,6 +21,15 @@ export interface ErrorOutputOptions {
   command: string;
   requestId: string;
   pretty: boolean;
+}
+
+export interface BatchResultOutput {
+  index: number;
+  line: number;
+  operation?: string;
+  ok: boolean;
+  data?: unknown;
+  error?: CLIErrorPayload['error'];
 }
 
 /**
@@ -79,6 +88,17 @@ export function emitError(err: CLIError, opt: ErrorOutputOptions): void {
     ...err.toJSON(),
   }, null, opt.pretty ? 2 : undefined);
   console.error(json);
+}
+
+export function emitBatchResult(
+  result: BatchResultOutput,
+  opt: Pick<OutputOptions, 'requestId'>,
+): void {
+  console.log(JSON.stringify({
+    apiVersion: API_VERSION,
+    requestId: opt.requestId,
+    ...result,
+  }));
 }
 
 function emitJSON(data: unknown, pretty: boolean): void {

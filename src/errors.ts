@@ -90,6 +90,8 @@ export function exitCode(category: ErrorCategory): number {
   return map[category] ?? 1;
 }
 
+export const BATCH_PARTIAL_FAILURE_EXIT_CODE = 12;
+
 export function isCLIError(err: unknown): err is CLIError {
   return err instanceof CLIError;
 }

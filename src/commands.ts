@@ -22,11 +22,18 @@ import {
   exportNotes,
   exportNotesCSV,
 } from './storage.js';
-import { emit, emitList, emitError } from './output.js';
-import { CLIError, exitCode, isCLIError } from './errors.js';
-import { createRequestId, resolveExecutionMode } from './execution.js';
-import { requestFingerprint } from './idempotency.js';
+import { emit, emitList, emitError, emitBatchResult } from './output.js';
 import {
+  BATCH_PARTIAL_FAILURE_EXIT_CODE,
+  CLIError,
+  exitCode,
+  isCLIError,
+} from './errors.js';
+import { createRequestId, resolveExecutionMode } from './execution.js';
+import { normalizeIdempotencyKey, requestFingerprint } from './idempotency.js';
+import { processJSONLBatch } from './batch.js';
+import {
+  BATCH_ITEM_SCHEMA,
   CLI_CAPABILITIES,
   CREATE_NOTE_INPUT_SCHEMA,
   validateCreateInput,
@@ -51,6 +58,7 @@ interface AppState {
   commandName: string;
   mode?: ExecutionMode;
   _config?: Awaited<ReturnType<typeof loadConfig>>;
+  exitCode: number;
 }
 
 const COMMAND_NAMES = [
@@ -65,6 +73,7 @@ const COMMAND_NAMES = [
   'config',
   'capabilities',
   'schema',
+  'batch',
 ];
 
 function readRawOption(argv: string[], longName: string, shortName?: string): string | undefined {
@@ -96,6 +105,7 @@ function newAppState(argv: string[] = process.argv): AppState {
     },
     requestId: createRequestId(),
     commandName: inferCommand(argv),
+    exitCode: 0,
   };
 }
 
@@ -183,25 +193,6 @@ function parseLimit(raw: string): number {
 function parseTags(raw: string | undefined): string[] {
   if (!raw) return [];
   return raw.split(',').map((tag) => tag.trim()).filter(Boolean);
-}
-
-function normalizeIdempotencyKey(raw: string): string {
-  const key = raw.trim();
-  if (key.length < 1 || key.length > 200) {
-    throw new CLIError(
-      'usage',
-      'INVALID_ARGUMENT',
-      '--idempotency-key must contain between 1 and 200 characters',
-      '',
-      [],
-      {
-        argument: 'idempotency-key',
-        valueLength: key.length,
-        expected: '1 to 200 characters',
-      },
-    );
-  }
-  return key;
 }
 
 async function readCreateInput(inputPath: string): Promise<CreateNoteReq> {
@@ -382,6 +373,45 @@ export function buildCLI(state: AppState = newAppState()): Command {
     .description('Show the JSON Schema accepted by notes create --input')
     .action(() => {
       emit(CREATE_NOTE_INPUT_SCHEMA, makeOutputOptions(state));
+    });
+
+  schema
+    .command('batch')
+    .description('Show the JSON Schema accepted by notes batch --input-jsonl')
+    .action(() => {
+      emit(BATCH_ITEM_SCHEMA, makeOutputOptions(state));
+    });
+
+  program
+    .command('batch')
+    .description('Execute create and delete operations from JSONL input')
+    .requiredOption('--input-jsonl <path|->', 'read JSONL operations; use "-" for stdin')
+    .option('--fail-fast', 'stop after the first failed item', false)
+    .action(async (options) => {
+      if (state.gflags.output !== 'jsonl') {
+        throw new CLIError(
+          'usage',
+          'OUTPUT_FORMAT_REQUIRED',
+          'batch requires explicit --output jsonl',
+          '',
+          [],
+          { requiredOutput: 'jsonl' },
+        );
+      }
+
+      const cfg = await ensureConfig(state);
+      const summary = await processJSONLBatch({
+        dataDir: cfg.dataDir,
+        inputPath: String(options.inputJsonl),
+        failFast: options.failFast === true,
+        onResult: (result) => emitBatchResult(result, { requestId: state.requestId }),
+      });
+
+      if (summary.failed > 0) {
+        state.exitCode = options.failFast && summary.firstFailureCategory
+          ? exitCode(summary.firstFailureCategory)
+          : BATCH_PARTIAL_FAILURE_EXIT_CODE;
+      }
     });
 
   program
@@ -698,7 +728,7 @@ export async function execute(argv: string[]): Promise<number> {
 
   try {
     await program.parseAsync(argv);
-    return 0;
+    return state.exitCode;
   } catch (err) {
     if (
       err instanceof CommanderError &&

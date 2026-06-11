@@ -44,6 +44,10 @@ notes delete <id> --dry-run --output json
 # Discover commands and structured input
 notes capabilities --output json
 notes schema create --output json
+notes schema batch --output json
+
+# Execute create/delete operations from JSONL
+notes batch --input-jsonl operations.jsonl --output jsonl
 
 # Export notes
 notes export backup.json --export-format json

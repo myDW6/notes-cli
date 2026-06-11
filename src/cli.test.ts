@@ -102,6 +102,32 @@ describe('CLI contract', () => {
     });
   });
 
+  it('publishes the batch item JSON Schema', () => {
+    const result = runCLI(['schema', 'batch', '--output', 'json']);
+
+    expect(result.status).toBe(0);
+    expect(JSON.parse(result.stdout)).toMatchObject({
+      ok: true,
+      command: 'schema.batch',
+      data: {
+        $id: 'notes.cli/v1/batch-item',
+        oneOf: [
+          {
+            properties: {
+              operation: { const: 'create' },
+            },
+          },
+          {
+            properties: {
+              operation: { const: 'delete' },
+              confirm: { const: true },
+            },
+          },
+        ],
+      },
+    });
+  });
+
   it('keeps discovery available when the notes config is invalid', () => {
     const configDir = makeTempDir();
     fs.writeFileSync(path.join(configDir, 'config.json'), '{invalid json');
@@ -439,5 +465,162 @@ describe('CLI contract', () => {
     ]);
     expect(deleted.status).toBe(0);
     expect(JSON.parse(deleted.stdout).data).toEqual({ deleted: true, id });
+  });
+
+  it('streams item results and returns exit 12 for partial batch failure', () => {
+    const dataDir = makeTempDir();
+    const input = [
+      '{"operation":"create","idempotencyKey":"batch-1","input":{"title":"A"}}',
+      '',
+      '{"operation":"create","input":{"title":""}}',
+      '{"operation":"create","idempotencyKey":"batch-3","input":{"title":"C"}}',
+    ].join('\n');
+
+    const result = runCLI([
+      'batch',
+      '--input-jsonl',
+      '-',
+      '--output',
+      'jsonl',
+      '--data-dir',
+      dataDir,
+    ], input);
+
+    expect(result.status).toBe(12);
+    expect(result.stderr).toBe('');
+    const lines = result.stdout.trim().split('\n').map((line) => JSON.parse(line));
+    expect(lines).toMatchObject([
+      {
+        index: 0,
+        line: 1,
+        operation: 'create',
+        ok: true,
+        data: { title: 'A', idempotency: { replayed: false } },
+      },
+      {
+        index: 1,
+        line: 3,
+        operation: 'create',
+        ok: false,
+        error: { code: 'MISSING_REQUIRED_INPUT' },
+      },
+      {
+        index: 2,
+        line: 4,
+        operation: 'create',
+        ok: true,
+        data: { title: 'C', idempotency: { replayed: false } },
+      },
+    ]);
+  });
+
+  it('stops batch processing on the first error with --fail-fast', () => {
+    const result = runCLI([
+      'batch',
+      '--input-jsonl',
+      '-',
+      '--output',
+      'jsonl',
+      '--fail-fast',
+      '--data-dir',
+      makeTempDir(),
+    ], [
+      '{"operation":"create","input":{"title":"A"}}',
+      '{"operation":"create","input":{"title":""}}',
+      '{"operation":"create","input":{"title":"C"}}',
+    ].join('\n'));
+
+    expect(result.status).toBe(2);
+    expect(result.stdout.trim().split('\n')).toHaveLength(2);
+  });
+
+  it('treats unreadable batch input as a batch-level stderr error', () => {
+    const result = runCLI([
+      'batch',
+      '--input-jsonl',
+      '/missing/operations.jsonl',
+      '--output',
+      'jsonl',
+      '--data-dir',
+      makeTempDir(),
+    ]);
+
+    expect(result.status).toBe(2);
+    expect(result.stdout).toBe('');
+    expect(JSON.parse(result.stderr)).toMatchObject({
+      command: 'batch',
+      error: {
+        code: 'INPUT_READ_ERROR',
+        details: { path: '/missing/operations.jsonl' },
+      },
+    });
+  });
+
+  it('requires explicit JSONL output for batch', () => {
+    const result = runCLI([
+      'batch',
+      '--input-jsonl',
+      '-',
+      '--output',
+      'json',
+      '--data-dir',
+      makeTempDir(),
+    ], '');
+
+    expect(result.status).toBe(2);
+    expect(result.stdout).toBe('');
+    expect(JSON.parse(result.stderr).error.code).toBe('OUTPUT_FORMAT_REQUIRED');
+  });
+
+  it('replays successful batch creates and requires delete confirmation', () => {
+    const dataDir = makeTempDir();
+    const createLine =
+      '{"operation":"create","idempotencyKey":"batch-1","input":{"title":"A"}}';
+
+    const first = runCLI([
+      'batch',
+      '--input-jsonl',
+      '-',
+      '--output',
+      'jsonl',
+      '--data-dir',
+      dataDir,
+    ], createLine);
+    const replay = runCLI([
+      'batch',
+      '--input-jsonl',
+      '-',
+      '--output',
+      'jsonl',
+      '--data-dir',
+      dataDir,
+    ], createLine);
+    const id = JSON.parse(first.stdout).data.id as string;
+
+    expect(JSON.parse(replay.stdout).data.idempotency.replayed).toBe(true);
+
+    const deleteResult = runCLI([
+      'batch',
+      '--input-jsonl',
+      '-',
+      '--output',
+      'jsonl',
+      '--data-dir',
+      dataDir,
+    ], [
+      `{"operation":"delete","input":{"id":"${id}"},"confirm":false}`,
+      `{"operation":"delete","input":{"id":"${id}"},"confirm":true}`,
+    ].join('\n'));
+
+    expect(deleteResult.status).toBe(12);
+    const results = deleteResult.stdout.trim().split('\n').map((line) => JSON.parse(line));
+    expect(results[0]).toMatchObject({
+      ok: false,
+      error: { code: 'CONFIRMATION_REQUIRED' },
+    });
+    expect(results[1]).toMatchObject({
+      ok: true,
+      data: { deleted: true, id },
+    });
   });
 });

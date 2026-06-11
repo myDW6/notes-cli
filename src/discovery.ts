@@ -29,6 +29,53 @@ export const CREATE_NOTE_INPUT_SCHEMA = {
   },
 } as const;
 
+export const BATCH_ITEM_SCHEMA = {
+  $schema: 'https://json-schema.org/draft/2020-12/schema',
+  $id: `${API_VERSION}/batch-item`,
+  title: 'Batch operation item',
+  oneOf: [
+    {
+      type: 'object',
+      additionalProperties: false,
+      required: ['operation', 'input'],
+      properties: {
+        operation: { const: 'create' },
+        input: {
+          type: CREATE_NOTE_INPUT_SCHEMA.type,
+          additionalProperties: CREATE_NOTE_INPUT_SCHEMA.additionalProperties,
+          required: CREATE_NOTE_INPUT_SCHEMA.required,
+          properties: CREATE_NOTE_INPUT_SCHEMA.properties,
+        },
+        idempotencyKey: {
+          type: 'string',
+          minLength: 1,
+          maxLength: 200,
+        },
+      },
+    },
+    {
+      type: 'object',
+      additionalProperties: false,
+      required: ['operation', 'input', 'confirm'],
+      properties: {
+        operation: { const: 'delete' },
+        input: {
+          type: 'object',
+          additionalProperties: false,
+          required: ['id'],
+          properties: {
+            id: {
+              type: 'string',
+              minLength: 1,
+            },
+          },
+        },
+        confirm: { const: true },
+      },
+    },
+  ],
+} as const;
+
 export const CLI_CAPABILITIES = {
   commands: {
     capabilities: {
@@ -44,6 +91,26 @@ export const CLI_CAPABILITIES = {
       interactive: false,
       supportsDryRun: false,
       supportsStructuredInput: false,
+    },
+    'schema.batch': {
+      readOnly: true,
+      destructive: false,
+      interactive: false,
+      supportsDryRun: false,
+      supportsStructuredInput: false,
+    },
+    batch: {
+      readOnly: false,
+      destructive: true,
+      interactive: false,
+      supportsDryRun: false,
+      supportsStructuredInput: true,
+      inputFormat: 'jsonl',
+      requiredOutputFormat: 'jsonl',
+      inputSchema: BATCH_ITEM_SCHEMA.$id,
+      supportedOperations: ['create', 'delete'],
+      supportsFailFast: true,
+      atomic: false,
     },
     create: {
       readOnly: false,

@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import {
+  BATCH_ITEM_SCHEMA,
   CLI_CAPABILITIES,
   CREATE_NOTE_INPUT_SCHEMA,
   validateCreateInput,
@@ -15,6 +16,17 @@ describe('CLI discovery contracts', () => {
     expect(CLI_CAPABILITIES.commands.create).toMatchObject({
       supportsIdempotencyKey: true,
       idempotencyRequired: false,
+    });
+  });
+
+  it('publishes the JSONL batch contract', () => {
+    expect(BATCH_ITEM_SCHEMA.$id).toBe('notes.cli/v1/batch-item');
+    expect(CLI_CAPABILITIES.commands.batch).toMatchObject({
+      inputFormat: 'jsonl',
+      requiredOutputFormat: 'jsonl',
+      supportedOperations: ['create', 'delete'],
+      supportsFailFast: true,
+      atomic: false,
     });
   });
 
