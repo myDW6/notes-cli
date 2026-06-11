@@ -24,6 +24,11 @@ import {
 import { emit, emitList, emitError } from './output.js';
 import { CLIError, exitCode, isCLIError } from './errors.js';
 import { createRequestId, resolveExecutionMode } from './execution.js';
+import {
+  CLI_CAPABILITIES,
+  CREATE_NOTE_INPUT_SCHEMA,
+  validateCreateInput,
+} from './discovery.js';
 import type { ExecutionMode } from './execution.js';
 import type { OutputFormat, OutputOptions } from './output.js';
 import type { CreateNoteReq } from './types.js';
@@ -56,6 +61,8 @@ const COMMAND_NAMES = [
   'export',
   'interactive-edit',
   'config',
+  'capabilities',
+  'schema',
 ];
 
 function readRawOption(argv: string[], longName: string, shortName?: string): string | undefined {
@@ -176,60 +183,6 @@ function parseTags(raw: string | undefined): string[] {
   return raw.split(',').map((tag) => tag.trim()).filter(Boolean);
 }
 
-function validateCreateRequest(value: unknown): CreateNoteReq {
-  if (typeof value !== 'object' || value === null || Array.isArray(value)) {
-    throw new CLIError(
-      'usage',
-      'INVALID_INPUT',
-      'Create input must be a JSON object',
-      '',
-      [],
-      { expected: 'object' },
-    );
-  }
-
-  const record = value as Record<string, unknown>;
-  if (typeof record.title !== 'string' || record.title.trim() === '') {
-    throw new CLIError(
-      'usage',
-      'MISSING_REQUIRED_INPUT',
-      'title is required',
-      '',
-      [],
-      { field: 'title' },
-    );
-  }
-  if (record.content !== undefined && typeof record.content !== 'string') {
-    throw new CLIError(
-      'usage',
-      'INVALID_INPUT',
-      'content must be a string',
-      '',
-      [],
-      { field: 'content', expected: 'string' },
-    );
-  }
-  if (
-    record.tags !== undefined &&
-    (!Array.isArray(record.tags) || record.tags.some((tag) => typeof tag !== 'string'))
-  ) {
-    throw new CLIError(
-      'usage',
-      'INVALID_INPUT',
-      'tags must be an array of strings',
-      '',
-      [],
-      { field: 'tags', expected: 'string[]' },
-    );
-  }
-
-  return {
-    title: record.title.trim(),
-    content: (record.content as string | undefined) ?? '',
-    tags: (record.tags as string[] | undefined)?.map((tag) => tag.trim()).filter(Boolean) ?? [],
-  };
-}
-
 async function readCreateInput(inputPath: string): Promise<CreateNoteReq> {
   let raw: string;
   try {
@@ -248,7 +201,7 @@ async function readCreateInput(inputPath: string): Promise<CreateNoteReq> {
   }
 
   try {
-    return validateCreateRequest(JSON.parse(raw) as unknown);
+    return validateCreateInput(JSON.parse(raw) as unknown);
   } catch (err) {
     if (isCLIError(err)) throw err;
     throw new CLIError(
@@ -349,7 +302,9 @@ export function buildCLI(state: AppState = newAppState()): Command {
     .option('--interactive', 'require interactive prompts', false)
     .hook('preAction', async (_thisCommand, actionCommand) => {
       const opts = actionCommand.optsWithGlobals();
-      state.commandName = actionCommand.name();
+      state.commandName = actionCommand.parent?.name() === 'schema'
+        ? `schema.${actionCommand.name()}`
+        : actionCommand.name();
       state.gflags = {
         config: opts.config,
         dataDir: opts.dataDir,
@@ -360,11 +315,15 @@ export function buildCLI(state: AppState = newAppState()): Command {
         interactive: opts.interactive,
       };
 
-      const cfg = await ensureConfig(state);
       const outputValue = resolveOutputFlag(state.gflags);
+      const isDiscoveryCommand =
+        state.commandName === 'capabilities' ||
+        state.commandName.startsWith('schema.');
       const output = outputValue
         ? parseOutputFormat(outputValue)
-        : cfg.defaultFormat;
+        : isDiscoveryCommand
+          ? 'table'
+          : (await ensureConfig(state)).defaultFormat;
 
       if (output === 'jsonl' && state.gflags.pretty) {
         throw new CLIError(
@@ -384,6 +343,24 @@ export function buildCLI(state: AppState = newAppState()): Command {
         stdinIsTTY: process.stdin.isTTY,
         stdoutIsTTY: process.stdout.isTTY,
       });
+    });
+
+  program
+    .command('capabilities')
+    .description('Describe CLI capabilities for automated clients')
+    .action(() => {
+      emit(CLI_CAPABILITIES, makeOutputOptions(state));
+    });
+
+  const schema = program
+    .command('schema')
+    .description('Describe structured input schemas');
+
+  schema
+    .command('create')
+    .description('Show the JSON Schema accepted by notes create --input')
+    .action(() => {
+      emit(CREATE_NOTE_INPUT_SCHEMA, makeOutputOptions(state));
     });
 
   program

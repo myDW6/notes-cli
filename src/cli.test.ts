@@ -46,6 +46,88 @@ afterEach(() => {
 });
 
 describe('CLI contract', () => {
+  it('publishes concrete capabilities in the standard envelope', () => {
+    const result = runCLI(['capabilities', '--output', 'json']);
+
+    expect(result.status).toBe(0);
+    expect(result.stderr).toBe('');
+    expect(JSON.parse(result.stdout)).toMatchObject({
+      ok: true,
+      apiVersion: 'notes.cli/v1',
+      command: 'capabilities',
+      data: {
+        commands: {
+          create: {
+            readOnly: false,
+            destructive: false,
+            supportsDryRun: true,
+            supportsStructuredInput: true,
+          },
+          delete: {
+            destructive: true,
+            requiresConfirmation: true,
+            supportsDryRun: true,
+          },
+        },
+        outputFormats: ['table', 'json', 'jsonl'],
+        protocolVersions: ['notes.cli/v1'],
+      },
+    });
+  });
+
+  it('publishes the create input JSON Schema', () => {
+    const result = runCLI(['schema', 'create', '--output', 'json']);
+
+    expect(result.status).toBe(0);
+    expect(result.stderr).toBe('');
+    expect(JSON.parse(result.stdout)).toMatchObject({
+      ok: true,
+      command: 'schema.create',
+      data: {
+        $schema: 'https://json-schema.org/draft/2020-12/schema',
+        $id: 'notes.cli/v1/create-input',
+        type: 'object',
+        additionalProperties: false,
+        required: ['title'],
+        properties: {
+          title: { type: 'string', minLength: 1 },
+          content: { type: 'string', default: '' },
+          tags: {
+            type: 'array',
+            items: { type: 'string', minLength: 1 },
+            default: [],
+          },
+        },
+      },
+    });
+  });
+
+  it('keeps discovery available when the notes config is invalid', () => {
+    const configDir = makeTempDir();
+    fs.writeFileSync(path.join(configDir, 'config.json'), '{invalid json');
+
+    const capabilities = runCLI([
+      'capabilities',
+      '--output',
+      'json',
+      '--config',
+      configDir,
+    ]);
+    const schema = runCLI([
+      'schema',
+      'create',
+      '--output',
+      'json',
+      '--config',
+      configDir,
+    ]);
+
+    expect(capabilities.status).toBe(0);
+    expect(JSON.parse(capabilities.stdout).command).toBe('capabilities');
+    expect(schema.status).toBe(0);
+    expect(JSON.parse(schema.stdout).command).toBe('schema.create');
+  });
+
   it('creates a note with one clean JSON document on stdout', () => {
     const dataDir = makeTempDir();
     const result = runCLI([
@@ -131,6 +213,25 @@ describe('CLI contract', () => {
 
     expect(result.status).toBe(2);
     expect(JSON.parse(result.stderr).error.code).toBe('CONFLICTING_INPUT');
+  });
+
+  it('rejects unknown fields in structured input', () => {
+    const result = runCLI(
+      ['create', '--input', '-', '--output', 'json', '--data-dir', makeTempDir()],
+      '{"title":"A","contents":"typo"}',
+    );
+
+    expect(result.status).toBe(2);
+    expect(result.stdout).toBe('');
+    expect(JSON.parse(result.stderr)).toMatchObject({
+      error: {
+        code: 'UNKNOWN_INPUT_FIELD',
+        details: {
+          field: 'contents',
+          allowedFields: ['title', 'content', 'tags'],
+        },
+      },
+    });
   });
 
   it('validates list options', () => {

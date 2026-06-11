@@ -38,6 +38,10 @@ notes delete <id> --yes
 # Preview a write without changing data
 notes delete <id> --dry-run --output json
 
+# Discover commands and structured input
+notes capabilities --output json
+notes schema create --output json
+
 # Export notes
 notes export backup.json --export-format json
 notes export backup.csv --export-format csv
@@ -88,6 +92,17 @@ Successful machine output uses a stable envelope:
 Failures return a non-zero exit code, leave stdout empty, and write a structured
 error envelope to stderr. Machine-readable output never prompts or includes
 colors and success decorations.
+
+Agents can discover supported operations and construct structured requests
+without parsing help text:
+
+```bash
+notes capabilities --output json
+notes schema create --output json
+```
+
+The create schema rejects unknown fields instead of silently ignoring likely
+typos.
 
 ## Configuration
 
