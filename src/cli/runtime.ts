@@ -1,4 +1,5 @@
 import { loadConfig } from '../config/resolver.js';
+import { CancellationContext } from './cancellation.js';
 import { CLIError } from './errors.js';
 import { createRequestId } from './execution.js';
 import { emit, emitList } from './output.js';
@@ -17,6 +18,7 @@ export interface GlobalFlags {
   quiet: boolean;
   noInput: boolean;
   interactive: boolean;
+  timeout?: string;
 }
 
 export interface AppState {
@@ -26,6 +28,7 @@ export interface AppState {
   mode?: ExecutionMode;
   config?: Awaited<ReturnType<typeof loadConfig>>;
   exitCode: number;
+  cancellation: CancellationContext;
 }
 
 const COMMAND_NAMES = [
@@ -66,7 +69,10 @@ function inferCommand(argv: string[]): string {
   return argv.slice(2).find((arg) => COMMAND_NAMES.includes(arg)) ?? 'notes';
 }
 
-export function createAppState(argv: string[] = process.argv): AppState {
+export function createAppState(
+  argv: string[] = process.argv,
+  cancellation = new CancellationContext(),
+): AppState {
   return {
     gflags: {
       output: readRawOption(argv, '--output', '-o'),
@@ -76,10 +82,12 @@ export function createAppState(argv: string[] = process.argv): AppState {
       quiet: argv.slice(2).includes('--quiet'),
       noInput: argv.slice(2).includes('--no-input'),
       interactive: argv.slice(2).includes('--interactive'),
+      timeout: readRawOption(argv, '--timeout'),
     },
     requestId: createRequestId(),
     commandName: inferCommand(argv),
     exitCode: 0,
+    cancellation,
   };
 }
 
@@ -152,5 +160,9 @@ export class CommandContext {
 
   get humanOutput(): boolean {
     return isHumanOutput(this.state);
+  }
+
+  get signal(): AbortSignal {
+    return this.state.cancellation.signal;
   }
 }

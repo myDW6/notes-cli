@@ -48,6 +48,7 @@ notes schema batch --output json
 
 # Execute create/delete operations from JSONL
 notes batch --input-jsonl operations.jsonl --output jsonl
+notes batch --input-jsonl operations.jsonl --output jsonl --timeout 30s
 
 # Export notes
 notes export backup.json --export-format json
@@ -81,6 +82,7 @@ notes doctor --output json
 | `--quiet` | Suppress successful table output |
 | `--no-input` | Disable interactive prompts |
 | `--interactive` | Require interactive prompts and a TTY |
+| `--timeout <duration>` | Cancel after a duration with unit, such as `500ms`, `30s`, or `5m` |
 | `--config <path>` | Config directory |
 | `--data-dir <path>` | Override the configured data directory |
 
@@ -142,6 +144,22 @@ paths resolve from the current working directory. Relative paths stored in
 Invalid environment values or malformed config files are reported as config
 errors instead of being silently replaced by defaults.
 
+## Compatibility
+
+The machine protocol remains `notes.cli/v1` across compatible CLI releases.
+The deprecated `--format`/`-f` option is still accepted as a hidden alias for
+`--output`, with removal planned for CLI `2.0.0`.
+
+Automated clients should read deprecation metadata from:
+
+```bash
+notes capabilities --output json
+```
+
+Successful human-readable invocations using the deprecated alias print a
+warning to stderr. Machine-readable output and structured error documents are
+not mixed with warning text.
+
 ## Project structure
 
 The CLI entry point is a composition root. Global parsing and runtime state live
@@ -159,6 +177,22 @@ failure and never changes permissions or configuration.
 
 A completed diagnostic run uses the normal success envelope. When one or more
 checks fail, `data.status` is `fail` and the process exits with code `1`.
+
+## Cancellation and timeouts
+
+The process entry point converts `SIGINT`, `SIGTERM`, and `--timeout` into one
+`AbortSignal`. Cooperative operations stop only at safe boundaries.
+
+JSONL batch cancellation appends a structured `type: "summary"` line and uses
+stable exit codes:
+
+```text
+timeout  124
+SIGINT   130
+SIGTERM  143
+```
+
+Timeout values require units. `--timeout 30` is rejected.
 
 ## Unix composition
 

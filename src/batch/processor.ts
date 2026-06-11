@@ -1,6 +1,7 @@
 import fs from 'node:fs/promises';
 import { createInterface } from 'node:readline';
 import { CLIError, isCLIError } from '../cli/errors.js';
+import type { CancellationReason } from '../cli/cancellation.js';
 import { normalizeIdempotencyKey } from '../notes/idempotency.js';
 import { createNote, createNoteIdempotent, deleteNote } from '../notes/storage.js';
 import { validateCreateInput } from '../protocol/discovery.js';
@@ -11,6 +12,7 @@ export interface BatchProcessOptions {
   dataDir: string;
   inputPath: string;
   failFast: boolean;
+  signal?: AbortSignal;
   onResult: (result: BatchResultOutput) => void;
 }
 
@@ -18,6 +20,7 @@ export interface BatchProcessSummary {
   processed: number;
   failed: number;
   firstFailureCategory?: ErrorCategory;
+  cancelled?: CancellationReason;
 }
 
 interface BatchItem {
@@ -27,7 +30,11 @@ interface BatchItem {
   confirm?: boolean;
 }
 
-async function* readLines(inputPath: string): AsyncGenerator<{ line: number; text: string }> {
+async function* readLines(
+  inputPath: string,
+  signal?: AbortSignal,
+): AsyncGenerator<{ line: number; text: string }> {
+  if (signal?.aborted) return;
   let input: NodeJS.ReadableStream;
   let handle: Awaited<ReturnType<typeof fs.open>> | undefined;
 
@@ -50,13 +57,17 @@ async function* readLines(inputPath: string): AsyncGenerator<{ line: number; tex
   }
 
   const reader = createInterface({ input, crlfDelay: Infinity });
+  const closeOnAbort = () => reader.close();
+  signal?.addEventListener('abort', closeOnAbort, { once: true });
   let line = 0;
   try {
     for await (const text of reader) {
+      if (signal?.aborted) break;
       line += 1;
       yield { line, text };
     }
   } finally {
+    signal?.removeEventListener('abort', closeOnAbort);
     reader.close();
     await handle?.close().catch(() => undefined);
   }
@@ -202,7 +213,8 @@ export async function processJSONLBatch(
   let failed = 0;
   let firstFailureCategory: ErrorCategory | undefined;
 
-  for await (const source of readLines(options.inputPath)) {
+  for await (const source of readLines(options.inputPath, options.signal)) {
+    if (options.signal?.aborted) break;
     if (source.text.trim() === '') continue;
 
     let operation: string | undefined;
@@ -252,11 +264,15 @@ export async function processJSONLBatch(
     }
 
     index += 1;
+    if (options.signal?.aborted) break;
   }
 
   return {
     processed: index,
     failed,
     firstFailureCategory,
+    cancelled: options.signal?.aborted
+      ? options.signal.reason as CancellationReason
+      : undefined,
   };
 }

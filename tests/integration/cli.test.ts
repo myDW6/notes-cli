@@ -1,4 +1,4 @@
-import { spawnSync } from 'node:child_process';
+import { spawn, spawnSync } from 'node:child_process';
 import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
@@ -44,6 +44,45 @@ function runCLI(
   };
 }
 
+function runCLIAndSignal(
+  args: string[],
+  signal: NodeJS.Signals,
+): Promise<CLIResult> {
+  return new Promise((resolve, reject) => {
+    const child = spawn(
+      process.execPath,
+      ['--import', 'tsx', 'src/index.ts', ...args],
+      {
+        cwd: process.cwd(),
+        env: {
+          ...process.env,
+          NO_COLOR: '1',
+        },
+        stdio: ['ignore', 'pipe', 'pipe'],
+      },
+    );
+    let stdout = '';
+    let stderr = '';
+    let signalled = false;
+    child.stdout.setEncoding('utf-8');
+    child.stderr.setEncoding('utf-8');
+    child.stdout.on('data', (chunk: string) => {
+      stdout += chunk;
+      if (!signalled && stdout.includes('\n')) {
+        signalled = true;
+        child.kill(signal);
+      }
+    });
+    child.stderr.on('data', (chunk: string) => {
+      stderr += chunk;
+    });
+    child.on('error', reject);
+    child.on('close', (status) => {
+      resolve({ status, stdout, stderr });
+    });
+  });
+}
+
 afterEach(() => {
   for (const dir of tempDirs.splice(0)) {
     fs.rmSync(dir, { recursive: true, force: true });
@@ -78,6 +117,138 @@ describe('CLI contract', () => {
         protocolVersions: ['notes.cli/v1'],
       },
     });
+  });
+
+  it('publishes structured deprecation metadata without changing the API version', () => {
+    const result = runCLI(['capabilities', '--output', 'json']);
+    const payload = JSON.parse(result.stdout);
+
+    expect(result.status).toBe(0);
+    expect(payload.apiVersion).toBe('notes.cli/v1');
+    expect(payload.data.compatibility.deprecatedOptions).toContainEqual({
+      name: '--format',
+      shortName: '-f',
+      replacement: '--output',
+      removalVersion: '2.0.0',
+    });
+  });
+
+  it('rejects timeout values without an explicit unit', () => {
+    const result = runCLI([
+      'list',
+      '--timeout',
+      '30',
+      '--data-dir',
+      makeTempDir(),
+    ]);
+
+    expect(result.status).toBe(2);
+    expect(result.stdout).toBe('');
+    expect(JSON.parse(result.stderr).error.code).toBe('INVALID_DURATION');
+  });
+
+  it('keeps the deprecated format option compatible in machine mode', () => {
+    const result = runCLI([
+      'list',
+      '--all',
+      '--format',
+      'json',
+      '--data-dir',
+      makeTempDir(),
+    ]);
+
+    expect(result.status).toBe(0);
+    expect(result.stderr).toBe('');
+    expect(JSON.parse(result.stdout)).toMatchObject({
+      ok: true,
+      apiVersion: 'notes.cli/v1',
+      command: 'list',
+      data: {
+        items: [],
+        page: { hasMore: false },
+      },
+    });
+  });
+
+  it('accepts matching output and legacy format values', () => {
+    const result = runCLI([
+      'list',
+      '--all',
+      '--output',
+      'json',
+      '--format',
+      'json',
+      '--data-dir',
+      makeTempDir(),
+    ]);
+
+    expect(result.status).toBe(0);
+    expect(result.stderr).toBe('');
+    expect(JSON.parse(result.stdout).apiVersion).toBe('notes.cli/v1');
+  });
+
+  it('rejects conflicting output aliases with a stable error', () => {
+    const result = runCLI([
+      'list',
+      '--output',
+      'json',
+      '--format',
+      'table',
+      '--data-dir',
+      makeTempDir(),
+    ]);
+
+    expect(result.status).toBe(2);
+    expect(result.stdout).toBe('');
+    expect(JSON.parse(result.stderr)).toMatchObject({
+      apiVersion: 'notes.cli/v1',
+      error: {
+        code: 'CONFLICTING_OPTIONS',
+        details: { options: ['output', 'format'] },
+      },
+    });
+  });
+
+  it('warns for deprecated options only after successful human output', () => {
+    const result = runCLI([
+      'list',
+      '--format',
+      'table',
+      '--data-dir',
+      makeTempDir(),
+    ]);
+
+    expect(result.status).toBe(0);
+    expect(result.stdout).toContain('(no results)');
+    expect(result.stderr).toBe(
+      'Warning [DEPRECATED_OPTION]: --format is deprecated; ' +
+      'use --output. It will be removed in 2.0.0.\n',
+    );
+  });
+
+  it('keeps failed legacy invocations as one structured stderr document', () => {
+    const result = runCLI([
+      'delete',
+      'missing',
+      '--yes',
+      '--format',
+      'table',
+      '--data-dir',
+      makeTempDir(),
+    ]);
+
+    expect(result.status).toBe(6);
+    expect(result.stdout).toBe('');
+    expect(JSON.parse(result.stderr).error.code).toBe('NOTE_NOT_FOUND');
+    expect(result.stderr).not.toContain('DEPRECATED_OPTION');
+  });
+
+  it('keeps the deprecated format option hidden from help', () => {
+    const result = runCLI(['--help']);
+
+    expect(result.status).toBe(0);
+    expect(result.stdout).toContain('--output <format>');
+    expect(result.stdout).not.toContain('--format <format>');
   });
 
   it('publishes the create input JSON Schema', () => {
@@ -811,6 +982,86 @@ describe('CLI contract', () => {
     expect(results[1]).toMatchObject({
       ok: true,
       data: { deleted: true, id },
+    });
+  });
+
+  it('emits a cancellation summary and exits 124 when batch times out', () => {
+    const root = makeTempDir();
+    const inputPath = path.join(root, 'operations.jsonl');
+    fs.writeFileSync(
+      inputPath,
+      Array.from(
+        { length: 500 },
+        (_, index) =>
+          `{"operation":"create","input":{"title":"timeout-${index}"}}`,
+      ).join('\n'),
+    );
+
+    const result = runCLI([
+      'batch',
+      '--input-jsonl',
+      inputPath,
+      '--output',
+      'jsonl',
+      '--timeout',
+      '20ms',
+      '--data-dir',
+      path.join(root, 'data'),
+    ]);
+    const lines = result.stdout.trim().split('\n').map((line) => JSON.parse(line));
+    const summary = lines.at(-1);
+
+    expect(result.status).toBe(124);
+    expect(result.stderr).toBe('');
+    expect(summary).toMatchObject({
+      apiVersion: 'notes.cli/v1',
+      type: 'summary',
+      status: 'cancelled',
+      cancellation: {
+        kind: 'timeout',
+        code: 'OPERATION_TIMEOUT',
+        retryable: true,
+        timeoutMs: 20,
+      },
+    });
+    expect(lines.slice(0, -1).every((line) => line.type === 'item')).toBe(true);
+  });
+
+  it('emits a cancellation summary and exits 130 after SIGINT', async () => {
+    const root = makeTempDir();
+    const inputPath = path.join(root, 'operations.jsonl');
+    fs.writeFileSync(
+      inputPath,
+      Array.from(
+        { length: 200 },
+        (_, index) =>
+          `{"operation":"create","input":{"title":"signal-${index}"}}`,
+      ).join('\n'),
+    );
+
+    const result = await runCLIAndSignal([
+      'batch',
+      '--input-jsonl',
+      inputPath,
+      '--output',
+      'jsonl',
+      '--data-dir',
+      path.join(root, 'data'),
+    ], 'SIGINT');
+    const lines = result.stdout.trim().split('\n').map((line) => JSON.parse(line));
+
+    expect(result.status).toBe(130);
+    expect(result.stderr).toBe('');
+    expect(lines[0]).toMatchObject({ type: 'item', ok: true });
+    expect(lines.at(-1)).toMatchObject({
+      type: 'summary',
+      status: 'cancelled',
+      cancellation: {
+        kind: 'signal',
+        code: 'OPERATION_CANCELLED',
+        retryable: false,
+        signal: 'SIGINT',
+      },
     });
   });
 

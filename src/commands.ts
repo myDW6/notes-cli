@@ -10,6 +10,10 @@ import { registerReadCommands } from './commands/notes-read.js';
 import { registerWriteCommands } from './commands/notes-write.js';
 import { CLIError, exitCode, isCLIError } from './cli/errors.js';
 import { emitError } from './cli/output.js';
+import {
+  CancellationContext,
+  cancellationExitCode,
+} from './cli/cancellation.js';
 import type { AppState } from './cli/runtime.js';
 
 function registerCommands(program: Command, context: CommandContext): void {
@@ -44,8 +48,12 @@ function normalizeError(error: unknown): CLIError {
   return new CLIError('internal', 'INTERNAL', (error as Error).message);
 }
 
-export async function execute(argv: string[]): Promise<number> {
-  const state = createAppState(argv);
+export async function execute(
+  argv: string[],
+  providedCancellation?: CancellationContext,
+): Promise<number> {
+  const cancellation = providedCancellation ?? new CancellationContext();
+  const state = createAppState(argv, cancellation);
   const program = buildCLI(state);
 
   try {
@@ -65,6 +73,10 @@ export async function execute(argv: string[]): Promise<number> {
       requestId: state.requestId,
       pretty: state.gflags.pretty,
     });
-    return exitCode(cliError.category);
+    return cancellation.signal.aborted
+      ? cancellationExitCode(cancellation.reason)
+      : exitCode(cliError.category);
+  } finally {
+    if (!providedCancellation) cancellation.dispose();
   }
 }

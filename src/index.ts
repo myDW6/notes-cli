@@ -4,8 +4,15 @@
  * 对应 confluence-cli 的 cmd/confluence-cli/main.go
  */
 import { execute } from './commands.js';
-import { installBrokenPipeHandler } from './cli/process.js';
+import { CancellationContext } from './cli/cancellation.js';
+import { installBrokenPipeHandler, installSignalHandlers } from './cli/process.js';
 
 installBrokenPipeHandler();
-const code = await execute(process.argv);
-process.exitCode = code;
+const cancellation = new CancellationContext();
+const removeSignalHandlers = installSignalHandlers(cancellation);
+try {
+  process.exitCode = await execute(process.argv, cancellation);
+} finally {
+  cancellation.dispose();
+  removeSignalHandlers();
+}

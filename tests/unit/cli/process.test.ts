@@ -1,6 +1,9 @@
 import { EventEmitter } from 'node:events';
 import { describe, expect, it } from 'vitest';
-import { installBrokenPipeHandler } from '../../../src/cli/process.js';
+import {
+  installBrokenPipeHandler,
+  installSignalHandlers,
+} from '../../../src/cli/process.js';
 
 describe('broken pipe handling', () => {
   it('exits cleanly for EPIPE', () => {
@@ -24,5 +27,20 @@ describe('broken pipe handling', () => {
       'error',
       Object.assign(new Error('write failed'), { code: 'EIO' }),
     )).toThrow('write failed');
+  });
+
+  it('forwards process signals to one cancellation owner', () => {
+    const source = new EventEmitter();
+    const received: string[] = [];
+    const remove = installSignalHandlers({
+      cancelForSignal: (signal) => received.push(signal),
+    }, source);
+
+    source.emit('SIGINT');
+    source.emit('SIGTERM');
+    remove();
+    source.emit('SIGINT');
+
+    expect(received).toEqual(['SIGINT', 'SIGTERM']);
   });
 });

@@ -74,4 +74,33 @@ describe('JSONL batch processing', () => {
       error: { code: 'CONFIRMATION_REQUIRED' },
     });
   });
+
+  it('stops at an item boundary when the abort signal is triggered', async () => {
+    const inputPath = path.join(dataDir, 'batch.jsonl');
+    await fs.writeFile(inputPath, [
+      '{"operation":"create","input":{"title":"A"}}',
+      '{"operation":"create","input":{"title":"B"}}',
+      '{"operation":"create","input":{"title":"C"}}',
+    ].join('\n'));
+    const controller = new AbortController();
+    const results: BatchResultOutput[] = [];
+
+    const summary = await processJSONLBatch({
+      dataDir,
+      inputPath,
+      failFast: false,
+      signal: controller.signal,
+      onResult: (result) => {
+        results.push(result);
+        controller.abort({ kind: 'signal', signal: 'SIGINT' });
+      },
+    });
+
+    expect(results).toHaveLength(1);
+    expect(summary).toMatchObject({
+      processed: 1,
+      failed: 0,
+      cancelled: { kind: 'signal', signal: 'SIGINT' },
+    });
+  });
 });

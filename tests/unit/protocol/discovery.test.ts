@@ -47,6 +47,33 @@ describe('CLI discovery contracts', () => {
     });
   });
 
+  it('publishes deprecated option metadata for automated clients', () => {
+    expect(CLI_CAPABILITIES.compatibility.deprecatedOptions).toContainEqual({
+      name: '--format',
+      shortName: '-f',
+      replacement: '--output',
+      removalVersion: '2.0.0',
+    });
+  });
+
+  it('publishes timeout and batch cancellation contracts', () => {
+    expect(CLI_CAPABILITIES.globalOptions.timeout).toMatchObject({
+      supported: true,
+      requiresUnit: true,
+      units: ['ms', 's', 'm', 'h'],
+    });
+    expect(CLI_CAPABILITIES.commands.batch).toMatchObject({
+      supportsCancellation: true,
+      cancellationSummary: true,
+      cancellationCodes: ['OPERATION_TIMEOUT', 'OPERATION_CANCELLED'],
+      cancellationExitCodes: {
+        timeout: 124,
+        SIGINT: 130,
+        SIGTERM: 143,
+      },
+    });
+  });
+
   it('normalizes defaults defined by the create schema', () => {
     expect(validateCreateInput({ title: '  A  ' })).toEqual({
       title: 'A',

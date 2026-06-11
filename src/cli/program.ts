@@ -1,8 +1,9 @@
 import { Option } from 'commander';
 import { CLIError } from './errors.js';
 import { resolveExecutionMode } from './execution.js';
-import { parseFields, parseOutputFormat } from './parsers.js';
-import { ensureConfig, resolveOutputFlag } from './runtime.js';
+import { parseDuration, parseFields, parseOutputFormat } from './parsers.js';
+import { deprecatedOption } from '../protocol/deprecations.js';
+import { ensureConfig, isHumanOutput, resolveOutputFlag } from './runtime.js';
 import type { Command } from 'commander';
 import type { AppState } from './runtime.js';
 
@@ -46,6 +47,16 @@ function validateOutputOptions(state: AppState, output: string): void {
   parseFields(state.gflags.fields);
 }
 
+function emitDeprecationWarnings(state: AppState): void {
+  if (!state.gflags.legacyFormat || !isHumanOutput(state)) return;
+  const deprecation = deprecatedOption('--format');
+  if (!deprecation) return;
+  console.error(
+    `Warning [DEPRECATED_OPTION]: ${deprecation.name} is deprecated; ` +
+    `use ${deprecation.replacement}. It will be removed in ${deprecation.removalVersion}.`,
+  );
+}
+
 export function configureProgram(program: Command, state: AppState): void {
   program
     .name('notes')
@@ -67,6 +78,7 @@ export function configureProgram(program: Command, state: AppState): void {
     .option('--quiet', 'suppress successful human-readable output', false)
     .option('--no-input', 'disable interactive prompts')
     .option('--interactive', 'require interactive prompts', false)
+    .option('--timeout <duration>', 'cancel after a duration such as 500ms, 30s or 5m')
     .hook('preAction', async (_thisCommand, actionCommand) => {
       const opts = actionCommand.optsWithGlobals();
       state.commandName = commandPath(program, actionCommand);
@@ -80,7 +92,13 @@ export function configureProgram(program: Command, state: AppState): void {
         quiet: opts.quiet,
         noInput: opts.input === false,
         interactive: opts.interactive,
+        timeout: opts.timeout,
       };
+
+      if (state.gflags.timeout) {
+        state.cancellation.armTimeout(parseDuration(state.gflags.timeout));
+      }
+      state.cancellation.throwIfAborted();
 
       const outputValue = resolveOutputFlag(state.gflags);
       const isConfigIndependentCommand =
@@ -101,5 +119,8 @@ export function configureProgram(program: Command, state: AppState): void {
         stdinIsTTY: process.stdin.isTTY,
         stdoutIsTTY: process.stdout.isTTY,
       });
+    })
+    .hook('postAction', () => {
+      emitDeprecationWarnings(state);
     });
 }

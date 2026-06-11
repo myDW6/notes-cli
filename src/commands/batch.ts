@@ -4,7 +4,11 @@ import {
   CLIError,
   exitCode,
 } from '../cli/errors.js';
-import { emitBatchResult } from '../cli/output.js';
+import {
+  emitBatchResult,
+  emitBatchSummary,
+} from '../cli/output.js';
+import { cancellationExitCode } from '../cli/cancellation.js';
 import type { Command } from 'commander';
 import type { CommandContext } from '../cli/runtime.js';
 
@@ -35,8 +39,33 @@ export function registerBatchCommand(
         dataDir: config.dataDir,
         inputPath: String(options.inputJsonl),
         failFast: options.failFast === true,
+        signal: context.signal,
         onResult: (result) => emitBatchResult(result, { requestId: state.requestId }),
       });
+
+      if (summary.cancelled) {
+        emitBatchSummary({
+          status: 'cancelled',
+          processed: summary.processed,
+          succeeded: summary.processed - summary.failed,
+          failed: summary.failed,
+          cancellation: summary.cancelled.kind === 'timeout'
+            ? {
+                kind: 'timeout',
+                code: 'OPERATION_TIMEOUT',
+                retryable: true,
+                timeoutMs: summary.cancelled.timeoutMs,
+              }
+            : {
+                kind: 'signal',
+                code: 'OPERATION_CANCELLED',
+                retryable: false,
+                signal: summary.cancelled.signal,
+              },
+        }, { requestId: state.requestId });
+        state.exitCode = cancellationExitCode(summary.cancelled);
+        return;
+      }
 
       if (summary.failed > 0) {
         state.exitCode = options.failFast && summary.firstFailureCategory

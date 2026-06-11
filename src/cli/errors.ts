@@ -62,6 +62,12 @@ const ERROR_RECOVERY: Record<string, ErrorRecovery> = {
   TEMPORARY_IO_FAILURE: {
     retryable: true,
   },
+  OPERATION_TIMEOUT: {
+    retryable: true,
+  },
+  OPERATION_CANCELLED: {
+    retryable: false,
+  },
 };
 
 export function errorRecovery(code: string): ErrorRecovery {

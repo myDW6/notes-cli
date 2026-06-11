@@ -33,6 +33,22 @@ export interface BatchResultOutput {
   error?: CLIErrorPayload['error'];
 }
 
+export interface BatchCancellationOutput {
+  kind: 'timeout' | 'signal';
+  code: 'OPERATION_TIMEOUT' | 'OPERATION_CANCELLED';
+  retryable: boolean;
+  timeoutMs?: number;
+  signal?: 'SIGINT' | 'SIGTERM';
+}
+
+export interface BatchSummaryOutput {
+  status: 'cancelled';
+  processed: number;
+  succeeded: number;
+  failed: number;
+  cancellation: BatchCancellationOutput;
+}
+
 /**
  * 把任意数据渲染为 JSON 或表格
  */
@@ -105,7 +121,20 @@ export function emitBatchResult(
   console.log(JSON.stringify({
     apiVersion: API_VERSION,
     requestId: opt.requestId,
+    type: 'item',
     ...result,
+  }));
+}
+
+export function emitBatchSummary(
+  summary: BatchSummaryOutput,
+  opt: Pick<OutputOptions, 'requestId'>,
+): void {
+  console.log(JSON.stringify({
+    apiVersion: API_VERSION,
+    requestId: opt.requestId,
+    type: 'summary',
+    ...summary,
   }));
 }
 

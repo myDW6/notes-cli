@@ -50,3 +50,37 @@ export function parseTags(raw: string | undefined): string[] {
   if (!raw) return [];
   return raw.split(',').map((tag) => tag.trim()).filter(Boolean);
 }
+
+const DURATION_UNITS: Record<string, number> = {
+  ms: 1,
+  s: 1_000,
+  m: 60_000,
+  h: 3_600_000,
+};
+
+export function parseDuration(raw: string): number {
+  const match = /^(\d+)(ms|s|m|h)$/.exec(raw);
+  if (!match) {
+    throw new CLIError(
+      'usage',
+      'INVALID_DURATION',
+      '--timeout must be a positive duration with unit: ms, s, m or h',
+      '',
+      [],
+      { argument: 'timeout', value: raw, examples: ['500ms', '30s', '5m', '1h'] },
+    );
+  }
+  const value = Number(match[1]);
+  const timeoutMs = value * DURATION_UNITS[match[2]];
+  if (value < 1 || !Number.isSafeInteger(timeoutMs)) {
+    throw new CLIError(
+      'usage',
+      'INVALID_DURATION',
+      '--timeout must be a positive safe duration',
+      '',
+      [],
+      { argument: 'timeout', value: raw },
+    );
+  }
+  return timeoutMs;
+}

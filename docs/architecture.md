@@ -16,6 +16,7 @@ src/
     errors.ts          结构化错误协议
     output.ts          成功与失败输出协议
     execution.ts       交互、TTY 与输出模式
+    cancellation.ts    超时、信号与统一 AbortSignal
     process.ts         broken pipe 等进程边界
 
   commands/
@@ -43,6 +44,7 @@ src/
 
   protocol/
     discovery.ts       Agent 能力描述和输入 Schema
+    deprecations.ts    共享的兼容别名和弃用窗口
 
 tests/
   unit/

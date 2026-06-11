@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import {
+  parseDuration,
   parseFields,
   parseLimit,
   parseOutputFormat,
@@ -34,5 +35,18 @@ describe('CLI parsers', () => {
       expect.objectContaining({ code: 'INVALID_ARGUMENT' }),
     );
     expect(parseTags(' agent, cli,agent ')).toEqual(['agent', 'cli', 'agent']);
+  });
+
+  it('requires explicit timeout units', () => {
+    expect(parseDuration('500ms')).toBe(500);
+    expect(parseDuration('30s')).toBe(30_000);
+    expect(parseDuration('5m')).toBe(300_000);
+    expect(parseDuration('1h')).toBe(3_600_000);
+    expect(() => parseDuration('30')).toThrowError(
+      expect.objectContaining({ code: 'INVALID_DURATION' }),
+    );
+    expect(() => parseDuration('0s')).toThrowError(
+      expect.objectContaining({ code: 'INVALID_DURATION' }),
+    );
   });
 });

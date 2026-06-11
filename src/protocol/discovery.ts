@@ -1,5 +1,6 @@
 import { CLIError } from '../cli/errors.js';
 import { API_VERSION } from '../cli/output.js';
+import { DEPRECATED_OPTIONS } from './deprecations.js';
 import type { CreateNoteReq } from '../notes/types.js';
 
 export const CREATE_NOTE_INPUT_SCHEMA = {
@@ -77,6 +78,9 @@ export const BATCH_ITEM_SCHEMA = {
 } as const;
 
 export const CLI_CAPABILITIES = {
+  compatibility: {
+    deprecatedOptions: DEPRECATED_OPTIONS,
+  },
   globalOptions: {
     fields: {
       supported: true,
@@ -86,6 +90,11 @@ export const CLI_CAPABILITIES = {
     quiet: {
       supported: true,
       outputFormats: ['table'],
+    },
+    timeout: {
+      supported: true,
+      requiresUnit: true,
+      units: ['ms', 's', 'm', 'h'],
     },
   },
   standardStreams: {
@@ -136,6 +145,14 @@ export const CLI_CAPABILITIES = {
       inputSchema: BATCH_ITEM_SCHEMA.$id,
       supportedOperations: ['create', 'delete'],
       supportsFailFast: true,
+      supportsCancellation: true,
+      cancellationSummary: true,
+      cancellationCodes: ['OPERATION_TIMEOUT', 'OPERATION_CANCELLED'],
+      cancellationExitCodes: {
+        timeout: 124,
+        SIGINT: 130,
+        SIGTERM: 143,
+      },
       atomic: false,
     },
     create: {
