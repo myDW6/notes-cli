@@ -88,6 +88,34 @@ describe('CLI discovery contracts', () => {
     });
   });
 
+  it('publishes opt-in bounded retry semantics', () => {
+    expect(CLI_CAPABILITIES.globalOptions.retry).toMatchObject({
+      automatic: false,
+      option: '--max-retries',
+      defaultMaxRetries: 0,
+      maximumMaxRetries: 10,
+      totalAttempts: '1 + maxRetries',
+      requiresRetryableError: true,
+      requiresIdempotentOperation: true,
+      backoff: {
+        strategy: 'exponential-with-jitter',
+        baseDelayMs: 200,
+        maxDelayMs: 5_000,
+      },
+      respectsRetryAfterMs: true,
+      sharesTotalTimeoutBudget: true,
+    });
+    expect(CLI_CAPABILITIES.commands.create).toMatchObject({
+      automaticRetryRequiresIdempotencyKey: true,
+    });
+    expect(CLI_CAPABILITIES.commands.list).toMatchObject({
+      supportsAutomaticRetry: true,
+    });
+    expect(CLI_CAPABILITIES.commands.update).toMatchObject({
+      supportsAutomaticRetry: false,
+    });
+  });
+
   it('normalizes defaults defined by the create schema', () => {
     expect(validateCreateInput({ title: '  A  ' })).toEqual({
       title: 'A',

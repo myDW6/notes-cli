@@ -7,12 +7,22 @@ import {
   parseFields,
   parseLogFormat,
   parseLogLevel,
+  parseMaxRetries,
   parseOutputFormat,
 } from './parsers.js';
 import { deprecatedOption } from '../protocol/deprecations.js';
 import { ensureConfig, isHumanOutput, resolveOutputFlag } from './runtime.js';
 import type { Command } from 'commander';
 import type { AppState } from './runtime.js';
+
+const RETRY_AWARE_COMMANDS = new Set([
+  'list',
+  'get',
+  'search',
+  'create',
+  'update',
+  'delete',
+]);
 
 function commandPath(program: Command, actionCommand: Command): string {
   return actionCommand.parent !== program && actionCommand.parent
@@ -109,6 +119,7 @@ export function configureProgram(program: Command, state: AppState): void {
     .option('--no-input', 'disable interactive prompts')
     .option('--interactive', 'require interactive prompts', false)
     .option('--timeout <duration>', 'cancel after a duration such as 500ms, 30s or 5m')
+    .option('--max-retries <n>', 'retry safe transient failures up to n times', '0')
     .option('--log-file <path>', 'write diagnostic events to a file')
     .option('--log-level <level>', 'log level: error, warn, info or debug')
     .option('--log-format <format>', 'log format: json or text')
@@ -126,12 +137,30 @@ export function configureProgram(program: Command, state: AppState): void {
         noInput: opts.input === false,
         interactive: opts.interactive,
         timeout: opts.timeout,
+        maxRetries: opts.maxRetries,
         logFile: opts.logFile,
         logLevel: opts.logLevel,
         logFormat: opts.logFormat,
       };
 
       configureLogging(state);
+      state.retryPolicy = {
+        ...state.retryPolicy,
+        maxRetries: parseMaxRetries(state.gflags.maxRetries ?? '0'),
+      };
+      if (
+        state.retryPolicy.maxRetries > 0 &&
+        !RETRY_AWARE_COMMANDS.has(state.commandName)
+      ) {
+        throw new CLIError(
+          'usage',
+          'RETRY_UNSUPPORTED',
+          `${state.commandName} does not support automatic retries`,
+          'Remove --max-retries or use a command that declares retry support.',
+          [],
+          { command: state.commandName },
+        );
+      }
       if (state.gflags.timeout) {
         state.cancellation.armTimeout(parseDuration(state.gflags.timeout));
       }
@@ -159,6 +188,7 @@ export function configureProgram(program: Command, state: AppState): void {
       state.logger.log('info', 'command.started', {
         output: state.mode.output,
         interactive: state.mode.interactive,
+        maxRetries: state.retryPolicy.maxRetries,
       });
     })
     .hook('postAction', () => {

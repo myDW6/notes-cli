@@ -96,6 +96,22 @@ export const CLI_CAPABILITIES = {
       requiresUnit: true,
       units: ['ms', 's', 'm', 'h'],
     },
+    retry: {
+      automatic: false,
+      option: '--max-retries',
+      defaultMaxRetries: 0,
+      maximumMaxRetries: 10,
+      totalAttempts: '1 + maxRetries',
+      requiresRetryableError: true,
+      requiresIdempotentOperation: true,
+      backoff: {
+        strategy: 'exponential-with-jitter',
+        baseDelayMs: 200,
+        maxDelayMs: 5_000,
+      },
+      respectsRetryAfterMs: true,
+      sharesTotalTimeoutBudget: true,
+    },
     logging: {
       supported: true,
       defaultEnabled: false,
@@ -174,6 +190,7 @@ export const CLI_CAPABILITIES = {
       supportsStructuredInput: true,
       supportsIdempotencyKey: true,
       idempotencyRequired: false,
+      automaticRetryRequiresIdempotencyKey: true,
       inputSchema: CREATE_NOTE_INPUT_SCHEMA.$id,
     },
     get: {
@@ -182,6 +199,7 @@ export const CLI_CAPABILITIES = {
       interactive: false,
       supportsDryRun: false,
       supportsStructuredInput: false,
+      supportsAutomaticRetry: true,
     },
     list: {
       readOnly: true,
@@ -189,6 +207,7 @@ export const CLI_CAPABILITIES = {
       interactive: false,
       supportsDryRun: false,
       supportsStructuredInput: false,
+      supportsAutomaticRetry: true,
     },
     update: {
       readOnly: false,
@@ -196,6 +215,7 @@ export const CLI_CAPABILITIES = {
       interactive: false,
       supportsDryRun: true,
       supportsStructuredInput: false,
+      supportsAutomaticRetry: false,
     },
     delete: {
       readOnly: false,
@@ -204,6 +224,7 @@ export const CLI_CAPABILITIES = {
       requiresConfirmation: true,
       supportsDryRun: true,
       supportsStructuredInput: false,
+      supportsAutomaticRetry: false,
     },
     search: {
       readOnly: true,
@@ -211,6 +232,7 @@ export const CLI_CAPABILITIES = {
       interactive: false,
       supportsDryRun: false,
       supportsStructuredInput: false,
+      supportsAutomaticRetry: true,
     },
     export: {
       readOnly: false,

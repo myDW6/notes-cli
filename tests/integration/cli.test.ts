@@ -239,6 +239,83 @@ describe('CLI contract', () => {
     expect(JSON.parse(result.stderr).error.code).toBe('LOG_FILE_REQUIRED');
   });
 
+  it('validates bounded automatic retry options', () => {
+    const result = runCLI([
+      'list',
+      '--all',
+      '--output',
+      'json',
+      '--data-dir',
+      makeTempDir(),
+      '--max-retries',
+      '11',
+    ]);
+
+    expect(result.status).toBe(2);
+    expect(result.stdout).toBe('');
+    expect(JSON.parse(result.stderr).error.code).toBe('INVALID_ARGUMENT');
+  });
+
+  it('rejects retries for commands without a retry execution boundary', () => {
+    const result = runCLI([
+      'capabilities',
+      '--output',
+      'json',
+      '--max-retries',
+      '1',
+    ]);
+
+    expect(result.status).toBe(2);
+    expect(result.stdout).toBe('');
+    expect(JSON.parse(result.stderr).error.code).toBe('RETRY_UNSUPPORTED');
+  });
+
+  it('rejects automatic retry for a create without an idempotency key', () => {
+    const dataDir = makeTempDir();
+    const result = runCLI([
+      'create',
+      '--title',
+      'unsafe retry',
+      '--output',
+      'json',
+      '--data-dir',
+      dataDir,
+      '--max-retries',
+      '1',
+    ]);
+
+    expect(result.status).toBe(2);
+    expect(result.stdout).toBe('');
+    expect(JSON.parse(result.stderr).error.code).toBe('UNSAFE_RETRY');
+    expect(fs.existsSync(path.join(dataDir, 'notes.json'))).toBe(false);
+  });
+
+  it('allows automatic retry configuration for an idempotent create', () => {
+    const result = runCLI([
+      'create',
+      '--title',
+      'safe retry',
+      '--idempotency-key',
+      'request-safe-retry',
+      '--output',
+      'json',
+      '--data-dir',
+      makeTempDir(),
+      '--max-retries',
+      '2',
+    ]);
+
+    expect(result.status).toBe(0);
+    expect(result.stderr).toBe('');
+    expect(JSON.parse(result.stdout).data).toMatchObject({
+      title: 'safe retry',
+      idempotency: {
+        key: 'request-safe-retry',
+        replayed: false,
+      },
+    });
+  });
+
   it('keeps the deprecated format option compatible in machine mode', () => {
     const result = runCLI([
       'list',

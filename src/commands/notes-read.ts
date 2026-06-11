@@ -31,18 +31,27 @@ export function registerReadCommands(
       }
 
       if (options.all) {
-        const allItems: Awaited<ReturnType<typeof listNotes>>['items'] = [];
-        let next: string | undefined;
-        do {
-          const page = await listNotes(config.dataDir, { limit, cursor: next });
-          allItems.push(...page.items);
-          next = page.next;
-        } while (next);
+        const allItems = await context.run(async () => {
+          const items: Awaited<ReturnType<typeof listNotes>>['items'] = [];
+          let next: string | undefined;
+          do {
+            const page = await listNotes(config.dataDir, {
+              limit,
+              cursor: next,
+            });
+            items.push(...page.items);
+            next = page.next;
+          } while (next);
+          return items;
+        }, { idempotent: true });
         context.emitList(allItems, { hasMore: false });
         return;
       }
 
-      const page = await listNotes(config.dataDir, { limit, cursor });
+      const page = await context.run(
+        () => listNotes(config.dataDir, { limit, cursor }),
+        { idempotent: true },
+      );
       context.emitList(page.items, {
         hasMore: page.hasMore,
         next: page.next,
@@ -54,7 +63,10 @@ export function registerReadCommands(
     .description('Get a note by ID')
     .action(async (id: string) => {
       const config = await context.config();
-      context.emit(await getNote(config.dataDir, id));
+      context.emit(await context.run(
+        () => getNote(config.dataDir, id),
+        { idempotent: true },
+      ));
     });
 
   program
@@ -62,6 +74,11 @@ export function registerReadCommands(
     .description('Search notes by keyword')
     .action(async (keyword: string) => {
       const config = await context.config();
-      context.emit({ items: await searchNotes(config.dataDir, keyword) });
+      context.emit({
+        items: await context.run(
+          () => searchNotes(config.dataDir, keyword),
+          { idempotent: true },
+        ),
+      });
     });
 }

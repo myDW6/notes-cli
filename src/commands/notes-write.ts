@@ -34,14 +34,16 @@ Examples:
   cat note.json | notes create --input - --output json
 `)
     .action(async (options) => {
+      const idempotencyKey = options.idempotencyKey
+        ? normalizeIdempotencyKey(String(options.idempotencyKey))
+        : undefined;
+      context.assertRetrySafe(idempotencyKey !== undefined);
+
       const config = await context.config();
       const request = await resolveCreateRequest(
         options,
         context.state.mode?.interactive === true,
       );
-      const idempotencyKey = options.idempotencyKey
-        ? normalizeIdempotencyKey(String(options.idempotencyKey))
-        : undefined;
 
       if (options.dryRun) {
         context.emit({
@@ -64,9 +66,15 @@ Examples:
       }
 
       const result = idempotencyKey
-        ? await createNoteIdempotent(config.dataDir, request, idempotencyKey)
+        ? await context.run(
+            () => createNoteIdempotent(config.dataDir, request, idempotencyKey),
+            { idempotent: true },
+          )
         : undefined;
-      const note = result?.note ?? await createNote(config.dataDir, request);
+      const note = result?.note ?? await context.run(
+        () => createNote(config.dataDir, request),
+        { idempotent: false },
+      );
       if (context.humanOutput) {
         console.log(
           chalk.green(result?.idempotency.replayed ? 'Replayed note' : 'Created note'),
@@ -90,6 +98,7 @@ function registerUpdateCommand(program: Command, context: CommandContext): void 
     .option('--tags <tags>', 'comma-separated tags')
     .option('--dry-run', 'preview the request without updating', false)
     .action(async (id: string, options) => {
+      context.assertRetrySafe(false);
       const config = await context.config();
       const request = {
         id,
@@ -108,7 +117,10 @@ function registerUpdateCommand(program: Command, context: CommandContext): void 
         return;
       }
 
-      context.emit(await updateNote(config.dataDir, request));
+      context.emit(await context.run(
+        () => updateNote(config.dataDir, request),
+        { idempotent: false },
+      ));
     });
 }
 
@@ -119,6 +131,7 @@ function registerDeleteCommand(program: Command, context: CommandContext): void 
     .option('--yes', 'confirm deletion without prompting', false)
     .option('--dry-run', 'preview the request without deleting', false)
     .action(async (id: string, options) => {
+      context.assertRetrySafe(false);
       const config = await context.config();
 
       if (options.dryRun) {
@@ -152,7 +165,10 @@ function registerDeleteCommand(program: Command, context: CommandContext): void 
         }
       }
 
-      await deleteNote(config.dataDir, id);
+      await context.run(
+        () => deleteNote(config.dataDir, id),
+        { idempotent: false },
+      );
       context.emit({ deleted: true, id });
     });
 }

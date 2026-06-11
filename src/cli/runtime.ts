@@ -5,9 +5,15 @@ import { createRequestId } from './execution.js';
 import { nullLogger } from './logger.js';
 import { emit, emitList } from './output.js';
 import { parseFields, parseOutputFormat } from './parsers.js';
+import {
+  assertRetrySafe,
+  DEFAULT_RETRY_POLICY,
+  executeWithRetry,
+} from './retry.js';
 import type { ExecutionMode } from './execution.js';
 import type { LogFields, LogLevel, Logger } from './logger.js';
 import type { OutputOptions } from './output.js';
+import type { RetryPolicy } from './retry.js';
 import type { LoadOptions } from '../config/resolver.js';
 
 export interface GlobalFlags {
@@ -21,6 +27,7 @@ export interface GlobalFlags {
   noInput: boolean;
   interactive: boolean;
   timeout?: string;
+  maxRetries?: string;
   logFile?: string;
   logLevel?: string;
   logFormat?: string;
@@ -36,6 +43,7 @@ export interface AppState {
   cancellation: CancellationContext;
   logger: Logger;
   startedAtMs: number;
+  retryPolicy: RetryPolicy;
 }
 
 const COMMAND_NAMES = [
@@ -90,6 +98,7 @@ export function createAppState(
       noInput: argv.slice(2).includes('--no-input'),
       interactive: argv.slice(2).includes('--interactive'),
       timeout: readRawOption(argv, '--timeout'),
+      maxRetries: readRawOption(argv, '--max-retries'),
       logFile: readRawOption(argv, '--log-file'),
       logLevel: readRawOption(argv, '--log-level'),
       logFormat: readRawOption(argv, '--log-format'),
@@ -100,6 +109,7 @@ export function createAppState(
     cancellation,
     logger: nullLogger,
     startedAtMs: Date.now(),
+    retryPolicy: { ...DEFAULT_RETRY_POLICY },
   };
 }
 
@@ -180,5 +190,20 @@ export class CommandContext {
 
   log(level: LogLevel, event: string, fields?: LogFields): void {
     this.state.logger.log(level, event, fields);
+  }
+
+  run<T>(
+    operation: () => Promise<T>,
+    options: { idempotent: boolean },
+  ): Promise<T> {
+    return executeWithRetry(operation, this.state.retryPolicy, {
+      signal: this.signal,
+      logger: this.state.logger,
+      idempotent: options.idempotent,
+    });
+  }
+
+  assertRetrySafe(idempotent: boolean): void {
+    assertRetrySafe(this.state.retryPolicy, idempotent);
   }
 }

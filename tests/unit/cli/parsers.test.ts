@@ -5,6 +5,7 @@ import {
   parseLimit,
   parseLogFormat,
   parseLogLevel,
+  parseMaxRetries,
   parseOutputFormat,
   parseTags,
 } from '../../../src/cli/parsers.js';
@@ -59,6 +60,17 @@ describe('CLI parsers', () => {
       expect.objectContaining({ code: 'INVALID_ARGUMENT' }),
     );
     expect(() => parseLogFormat('yaml')).toThrowError(
+      expect.objectContaining({ code: 'INVALID_ARGUMENT' }),
+    );
+  });
+
+  it('validates the retry limit', () => {
+    expect(parseMaxRetries('0')).toBe(0);
+    expect(parseMaxRetries('3')).toBe(3);
+    expect(() => parseMaxRetries('-1')).toThrowError(
+      expect.objectContaining({ code: 'INVALID_ARGUMENT' }),
+    );
+    expect(() => parseMaxRetries('11')).toThrowError(
       expect.objectContaining({ code: 'INVALID_ARGUMENT' }),
     );
   });

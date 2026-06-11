@@ -75,6 +75,21 @@ export function parseLimit(raw: string): number {
   return value;
 }
 
+export function parseMaxRetries(raw: string): number {
+  const value = Number(raw);
+  if (!/^\d+$/.test(raw) || value < 0 || value > 10) {
+    throw new CLIError(
+      'usage',
+      'INVALID_ARGUMENT',
+      '--max-retries must be an integer between 0 and 10',
+      '',
+      [],
+      { argument: 'max-retries', value: raw, expected: 'integer between 0 and 10' },
+    );
+  }
+  return value;
+}
+
 export function parseTags(raw: string | undefined): string[] {
   if (!raw) return [];
   return raw.split(',').map((tag) => tag.trim()).filter(Boolean);
