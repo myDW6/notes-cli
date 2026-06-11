@@ -147,6 +147,98 @@ describe('CLI contract', () => {
     expect(JSON.parse(result.stderr).error.code).toBe('INVALID_DURATION');
   });
 
+  it('writes correlated JSONL logs without polluting command output', () => {
+    const dataDir = makeTempDir();
+    const logFile = path.join(dataDir, 'notes.log');
+    const result = runCLI([
+      'list',
+      '--all',
+      '--output',
+      'json',
+      '--data-dir',
+      dataDir,
+      '--log-file',
+      logFile,
+    ]);
+
+    expect(result.status).toBe(0);
+    expect(result.stderr).toBe('');
+    const response = JSON.parse(result.stdout);
+    const records = fs.readFileSync(logFile, 'utf-8')
+      .trim()
+      .split('\n')
+      .map((line) => JSON.parse(line));
+
+    expect(records).toHaveLength(2);
+    expect(records[0]).toMatchObject({
+      schemaVersion: 'notes.log/v1',
+      level: 'info',
+      event: 'command.started',
+      requestId: response.requestId,
+      command: 'list',
+      output: 'json',
+    });
+    expect(records[1]).toMatchObject({
+      event: 'command.completed',
+      requestId: response.requestId,
+      command: 'list',
+      exitCode: 0,
+    });
+    expect(records[1].durationMs).toEqual(expect.any(Number));
+  });
+
+  it('keeps failed stderr as one JSON document when logging is enabled', () => {
+    const dataDir = makeTempDir();
+    const logFile = path.join(dataDir, 'notes.log');
+    const result = runCLI([
+      'get',
+      'missing',
+      '--output',
+      'json',
+      '--data-dir',
+      dataDir,
+      '--log-file',
+      logFile,
+    ]);
+
+    expect(result.status).toBe(6);
+    expect(result.stdout).toBe('');
+    const response = JSON.parse(result.stderr);
+    const records = fs.readFileSync(logFile, 'utf-8')
+      .trim()
+      .split('\n')
+      .map((line) => JSON.parse(line));
+
+    expect(response.error.code).toBe('NOTE_NOT_FOUND');
+    expect(records.map((record) => record.event)).toEqual([
+      'command.started',
+      'command.failed',
+    ]);
+    expect(records[1]).toMatchObject({
+      requestId: response.requestId,
+      command: 'get',
+      error: {
+        category: 'not_found',
+        code: 'NOTE_NOT_FOUND',
+        retryable: false,
+      },
+    });
+  });
+
+  it('requires an explicit file for diagnostic log options', () => {
+    const result = runCLI([
+      'capabilities',
+      '--output',
+      'json',
+      '--log-level',
+      'debug',
+    ]);
+
+    expect(result.status).toBe(2);
+    expect(result.stdout).toBe('');
+    expect(JSON.parse(result.stderr).error.code).toBe('LOG_FILE_REQUIRED');
+  });
+
   it('keeps the deprecated format option compatible in machine mode', () => {
     const result = runCLI([
       'list',

@@ -16,6 +16,7 @@ src/
     errors.ts          结构化错误协议
     output.ts          成功与失败输出协议
     execution.ts       交互、TTY 与输出模式
+    logger.ts          独立诊断日志、脱敏与请求关联
     cancellation.ts    超时、信号与统一 AbortSignal
     process.ts         broken pipe 等进程边界
 
@@ -79,9 +80,28 @@ emit()         输出单个成功结果
 emitList()     输出分页列表
 humanOutput    判断是否允许人类提示
 state          访问 requestId、mode 和 exitCode 等执行状态
+log()          写入与本次 requestId 关联的诊断事件
 ```
 
 这避免每个 command action 重复拼装输出参数、重新加载配置或自行判断机器模式。
+
+## Observability
+
+结果协议、错误协议和诊断日志使用不同通道：
+
+```text
+stdout       成功结果或 JSONL 批处理结果
+stderr       单个结构化错误文档，或人类模式警告
+--log-file   独立的诊断事件流
+```
+
+日志默认关闭。启用后，每条记录包含稳定的事件名、`requestId`、
+命令名、时间戳和日志级别。`CommandContext.log()` 让命令模块记录事件，
+但文件生命周期、级别过滤、格式化和敏感字段脱敏仍由 `cli/logger.ts`
+统一负责。
+
+日志写入采用 best-effort 语义：运行期间的日志设备故障不会覆盖命令原本
+的结果、结构化错误或退出码。
 
 ## Adding A Command
 

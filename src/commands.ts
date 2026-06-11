@@ -68,6 +68,14 @@ export async function execute(
     }
 
     const cliError = normalizeError(error);
+    state.logger.log('error', 'command.failed', {
+      error: {
+        category: cliError.category,
+        code: cliError.code,
+        retryable: cliError.retryable,
+      },
+      durationMs: Date.now() - state.startedAtMs,
+    });
     emitError(cliError, {
       command: state.commandName,
       requestId: state.requestId,
@@ -77,6 +85,7 @@ export async function execute(
       ? cancellationExitCode(cancellation.reason)
       : exitCode(cliError.category);
   } finally {
+    state.logger.close();
     if (!providedCancellation) cancellation.dispose();
   }
 }

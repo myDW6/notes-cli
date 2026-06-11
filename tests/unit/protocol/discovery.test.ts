@@ -74,6 +74,20 @@ describe('CLI discovery contracts', () => {
     });
   });
 
+  it('publishes the isolated diagnostic logging contract', () => {
+    expect(CLI_CAPABILITIES.globalOptions.logging).toMatchObject({
+      supported: true,
+      defaultEnabled: false,
+      sink: 'file',
+      formats: ['json', 'text'],
+      levels: ['error', 'warn', 'info', 'debug'],
+      schemaVersion: 'notes.log/v1',
+      correlatedBy: 'requestId',
+      stdoutUnaffected: true,
+      stderrUnaffected: true,
+    });
+  });
+
   it('normalizes defaults defined by the create schema', () => {
     expect(validateCreateInput({ title: '  A  ' })).toEqual({
       title: 'A',

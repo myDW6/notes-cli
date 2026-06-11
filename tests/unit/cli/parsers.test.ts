@@ -3,6 +3,8 @@ import {
   parseDuration,
   parseFields,
   parseLimit,
+  parseLogFormat,
+  parseLogLevel,
   parseOutputFormat,
   parseTags,
 } from '../../../src/cli/parsers.js';
@@ -47,6 +49,17 @@ describe('CLI parsers', () => {
     );
     expect(() => parseDuration('0s')).toThrowError(
       expect.objectContaining({ code: 'INVALID_DURATION' }),
+    );
+  });
+
+  it('validates logging levels and formats', () => {
+    expect(parseLogLevel('debug')).toBe('debug');
+    expect(parseLogFormat('json')).toBe('json');
+    expect(() => parseLogLevel('verbose')).toThrowError(
+      expect.objectContaining({ code: 'INVALID_ARGUMENT' }),
+    );
+    expect(() => parseLogFormat('yaml')).toThrowError(
+      expect.objectContaining({ code: 'INVALID_ARGUMENT' }),
     );
   });
 });

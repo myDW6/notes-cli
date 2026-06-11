@@ -96,6 +96,17 @@ export const CLI_CAPABILITIES = {
       requiresUnit: true,
       units: ['ms', 's', 'm', 'h'],
     },
+    logging: {
+      supported: true,
+      defaultEnabled: false,
+      sink: 'file',
+      formats: ['json', 'text'],
+      levels: ['error', 'warn', 'info', 'debug'],
+      schemaVersion: 'notes.log/v1',
+      correlatedBy: 'requestId',
+      stdoutUnaffected: true,
+      stderrUnaffected: true,
+    },
   },
   standardStreams: {
     explicitInputMarker: '-',

@@ -194,6 +194,25 @@ SIGTERM  143
 
 Timeout values require units. `--timeout 30` is rejected.
 
+## Diagnostic logging
+
+Logging is disabled by default and uses a separate file so stdout and stderr
+keep their existing protocols:
+
+```bash
+notes list --output json --log-file ./notes.log
+notes list --output json --log-file ./notes.log --log-level debug
+notes list --log-file ./notes.log --log-format text
+```
+
+JSON is the default log format. Each JSONL event includes `schemaVersion`,
+`timestamp`, `level`, `event`, `requestId`, and `command`. The `requestId`
+matches the success or error response envelope.
+
+Supported levels are `error`, `warn`, `info`, and `debug`. `--log-level` and
+`--log-format` require `--log-file`; logs never share stdout with results or
+stderr with structured machine errors.
+
 ## Unix composition
 
 Use `-` only when explicitly reading from stdin or writing raw export content to

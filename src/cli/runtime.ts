@@ -2,9 +2,11 @@ import { loadConfig } from '../config/resolver.js';
 import { CancellationContext } from './cancellation.js';
 import { CLIError } from './errors.js';
 import { createRequestId } from './execution.js';
+import { nullLogger } from './logger.js';
 import { emit, emitList } from './output.js';
 import { parseFields, parseOutputFormat } from './parsers.js';
 import type { ExecutionMode } from './execution.js';
+import type { LogFields, LogLevel, Logger } from './logger.js';
 import type { OutputOptions } from './output.js';
 import type { LoadOptions } from '../config/resolver.js';
 
@@ -19,6 +21,9 @@ export interface GlobalFlags {
   noInput: boolean;
   interactive: boolean;
   timeout?: string;
+  logFile?: string;
+  logLevel?: string;
+  logFormat?: string;
 }
 
 export interface AppState {
@@ -29,6 +34,8 @@ export interface AppState {
   config?: Awaited<ReturnType<typeof loadConfig>>;
   exitCode: number;
   cancellation: CancellationContext;
+  logger: Logger;
+  startedAtMs: number;
 }
 
 const COMMAND_NAMES = [
@@ -83,11 +90,16 @@ export function createAppState(
       noInput: argv.slice(2).includes('--no-input'),
       interactive: argv.slice(2).includes('--interactive'),
       timeout: readRawOption(argv, '--timeout'),
+      logFile: readRawOption(argv, '--log-file'),
+      logLevel: readRawOption(argv, '--log-level'),
+      logFormat: readRawOption(argv, '--log-format'),
     },
     requestId: createRequestId(),
     commandName: inferCommand(argv),
     exitCode: 0,
     cancellation,
+    logger: nullLogger,
+    startedAtMs: Date.now(),
   };
 }
 
@@ -164,5 +176,9 @@ export class CommandContext {
 
   get signal(): AbortSignal {
     return this.state.cancellation.signal;
+  }
+
+  log(level: LogLevel, event: string, fields?: LogFields): void {
+    this.state.logger.log(level, event, fields);
   }
 }

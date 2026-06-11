@@ -1,4 +1,5 @@
 import { CLIError } from './errors.js';
+import type { LogFormat, LogLevel } from './logger.js';
 import type { OutputFormat } from './output.js';
 
 export function parseOutputFormat(value: string): OutputFormat {
@@ -12,6 +13,34 @@ export function parseOutputFormat(value: string): OutputFormat {
     '',
     [],
     { argument: 'output', value, expected: ['table', 'json', 'jsonl'] },
+  );
+}
+
+export function parseLogLevel(value: string): LogLevel {
+  if (value === 'error' || value === 'warn' || value === 'info' || value === 'debug') {
+    return value;
+  }
+  throw new CLIError(
+    'usage',
+    'INVALID_ARGUMENT',
+    '--log-level must be one of: error, warn, info, debug',
+    '',
+    [],
+    { argument: 'log-level', value, expected: ['error', 'warn', 'info', 'debug'] },
+  );
+}
+
+export function parseLogFormat(value: string): LogFormat {
+  if (value === 'json' || value === 'text') {
+    return value;
+  }
+  throw new CLIError(
+    'usage',
+    'INVALID_ARGUMENT',
+    '--log-format must be one of: json, text',
+    '',
+    [],
+    { argument: 'log-format', value, expected: ['json', 'text'] },
   );
 }
 

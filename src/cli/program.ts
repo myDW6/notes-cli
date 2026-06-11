@@ -1,7 +1,14 @@
 import { Option } from 'commander';
 import { CLIError } from './errors.js';
 import { resolveExecutionMode } from './execution.js';
-import { parseDuration, parseFields, parseOutputFormat } from './parsers.js';
+import { createLogger } from './logger.js';
+import {
+  parseDuration,
+  parseFields,
+  parseLogFormat,
+  parseLogLevel,
+  parseOutputFormat,
+} from './parsers.js';
 import { deprecatedOption } from '../protocol/deprecations.js';
 import { ensureConfig, isHumanOutput, resolveOutputFlag } from './runtime.js';
 import type { Command } from 'commander';
@@ -57,6 +64,29 @@ function emitDeprecationWarnings(state: AppState): void {
   );
 }
 
+function configureLogging(state: AppState): void {
+  if (!state.gflags.logFile && (state.gflags.logLevel || state.gflags.logFormat)) {
+    throw new CLIError(
+      'usage',
+      'LOG_FILE_REQUIRED',
+      '--log-level and --log-format require --log-file',
+      '',
+      [],
+      { options: ['log-file', 'log-level', 'log-format'] },
+    );
+  }
+
+  state.logger = createLogger({
+    file: state.gflags.logFile,
+    level: parseLogLevel(state.gflags.logLevel ?? 'info'),
+    format: parseLogFormat(state.gflags.logFormat ?? 'json'),
+    context: () => ({
+      requestId: state.requestId,
+      command: state.commandName,
+    }),
+  });
+}
+
 export function configureProgram(program: Command, state: AppState): void {
   program
     .name('notes')
@@ -79,6 +109,9 @@ export function configureProgram(program: Command, state: AppState): void {
     .option('--no-input', 'disable interactive prompts')
     .option('--interactive', 'require interactive prompts', false)
     .option('--timeout <duration>', 'cancel after a duration such as 500ms, 30s or 5m')
+    .option('--log-file <path>', 'write diagnostic events to a file')
+    .option('--log-level <level>', 'log level: error, warn, info or debug')
+    .option('--log-format <format>', 'log format: json or text')
     .hook('preAction', async (_thisCommand, actionCommand) => {
       const opts = actionCommand.optsWithGlobals();
       state.commandName = commandPath(program, actionCommand);
@@ -93,8 +126,12 @@ export function configureProgram(program: Command, state: AppState): void {
         noInput: opts.input === false,
         interactive: opts.interactive,
         timeout: opts.timeout,
+        logFile: opts.logFile,
+        logLevel: opts.logLevel,
+        logFormat: opts.logFormat,
       };
 
+      configureLogging(state);
       if (state.gflags.timeout) {
         state.cancellation.armTimeout(parseDuration(state.gflags.timeout));
       }
@@ -119,8 +156,16 @@ export function configureProgram(program: Command, state: AppState): void {
         stdinIsTTY: process.stdin.isTTY,
         stdoutIsTTY: process.stdout.isTTY,
       });
+      state.logger.log('info', 'command.started', {
+        output: state.mode.output,
+        interactive: state.mode.interactive,
+      });
     })
     .hook('postAction', () => {
       emitDeprecationWarnings(state);
+      state.logger.log('info', 'command.completed', {
+        exitCode: state.exitCode,
+        durationMs: Date.now() - state.startedAtMs,
+      });
     });
 }
